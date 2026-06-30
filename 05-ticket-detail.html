@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 · Ticket Detail — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="top-header">
+    <div class="brand"><div class="logo">🎫</div> ServiceDesk</div>
+    <div class="spacer"></div>
+    <div class="hdr-item">🔔</div>
+    <div class="hdr-item"><span class="role-pill">Support Agent</span></div>
+    <div class="hdr-item"><span class="avatar">MO</span> Mike Ops ▾</div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="nav-section">Overview</div>
+    <a class="nav-item" href="02-home.html"><span class="ic">🏠</span> Home</a>
+    <a class="nav-item" href="03-dashboard.html"><span class="ic">📊</span> Dashboard</a>
+    <div class="nav-section">Tickets</div>
+    <a class="nav-item active" href="04-ticket-list.html"><span class="ic">🎫</span> Ticket Queue</a>
+    <div class="nav-section">Account</div>
+    <a class="nav-item" href="12-profile.html"><span class="ic">👤</span> My Profile</a>
+  </aside>
+
+  <main class="main">
+    <div class="page-bar">
+      <div class="titles">
+        <div class="crumb"><a href="04-ticket-list.html">Queue</a> / TKT-00042</div>
+        <h1>VPN disconnects every few minutes</h1>
+      </div>
+      <div class="actions">
+        <!-- Workflow transitions = buttons + declarative processes (each writes TICKET_HISTORY) -->
+        <a class="btn" href="07-assign.html"><span>👤</span> Reassign</a>
+        <button class="btn"><span>⏸️</span> Put On Hold</button>
+        <button class="btn btn-hot"><span>✓</span> Resolve</button>
+      </div>
+    </div>
+
+    <div class="content" style="display:grid;grid-template-columns:1fr 300px;gap:16px;">
+      <!-- Left: detail + conversation -->
+      <div>
+        <div class="card">
+          <div class="card-hd">Ticket TKT-00042
+            <span class="badge st-progress" style="margin-left:8px;"><span class="dot"></span>In Progress</span>
+            <span class="badge pr-medium" style="margin-left:4px;">Medium</span>
+          </div>
+          <div class="card-bd">
+            <p style="margin-top:0;">Several users on the Acme Corp network report the corporate VPN dropping
+            every 3–5 minutes since this morning. Reconnect works but the session drops again shortly after.
+            Affects roughly 12 staff in the finance team.</p>
+            <div class="grid cols-3" style="gap:8px;margin-top:8px;">
+              <div><div class="muted" style="font-size:11.5px;">Category</div><div>Network</div></div>
+              <div><div class="muted" style="font-size:11.5px;">Raised by</div><div>Anna Nguyen</div></div>
+              <div><div class="muted" style="font-size:11.5px;">Created</div><div>Today, 09:14</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comments region (FR-13, FR-14) -->
+        <div class="card" style="margin-top:16px;">
+          <div class="card-hd">Conversation <span class="sub">FR-13 · FR-14</span>
+            <a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html"><span>💬</span> Add Comment</a>
+          </div>
+          <div class="card-bd">
+            <div class="comment">
+              <div class="av">AN</div>
+              <div style="flex:1;">
+                <div class="head"><b>Anna Nguyen</b> · Client User · 09:14</div>
+                <div class="body">It started right after the morning. Finance team can't reach the ERP.</div>
+              </div>
+            </div>
+            <div class="comment">
+              <div class="av" style="background:#15803d;">MO</div>
+              <div style="flex:1;">
+                <div class="head"><b>Mike Ops</b> · Support Agent · 09:40</div>
+                <div class="body">Looking into it — checking the VPN concentrator logs now.</div>
+              </div>
+            </div>
+            <div class="comment internal">
+              <div class="av" style="background:#92740a;">MO</div>
+              <div style="flex:1;">
+                <div class="head"><b>Mike Ops</b> · <span class="badge st-progress">🔒 Internal note</span> · 09:42</div>
+                <div class="body">Concentrator showing MTU mismatch after last firmware push. Not visible to client.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: properties + history -->
+      <div>
+        <div class="card">
+          <div class="card-hd">Properties</div>
+          <div class="card-bd form-grid">
+            <div class="field"><label>Status</label>
+              <select><option>In Progress</option><option>On Hold</option><option>Resolved</option></select></div>
+            <div class="field"><label>Priority</label>
+              <select><option>Medium</option><option>High</option><option>Critical</option><option>Low</option></select></div>
+            <div class="field"><label>Assignee</label>
+              <select><option>Mike Ops</option><option>Lee Tech</option><option>Unassigned</option></select></div>
+            <div class="field"><label>Company</label>
+              <input value="Acme Corp" disabled></div>
+          </div>
+        </div>
+
+        <!-- History region (FR-12) -->
+        <div class="card" style="margin-top:16px;">
+          <div class="card-hd">Activity History <span class="sub">FR-12</span></div>
+          <div class="card-bd">
+            <ul class="timeline">
+              <li><span class="pt"></span><div><span class="who">Mike Ops</span> started work</div><div class="meta">Status: Assigned → In Progress · 09:38</div></li>
+              <li><span class="pt"></span><div><span class="who">Sara Admin</span> assigned <b>Mike Ops</b></div><div class="meta">Status: New → Assigned · 09:30</div></li>
+              <li><span class="pt"></span><div><span class="who">Anna Nguyen</span> raised the ticket</div><div class="meta">Status: → New · 09:14</div></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted" style="font-size:11.5px;padding:0 24px 24px;">
+      Page 5 (MUST) — APEX type: Form + Comments &amp; History regions. The hub of the app.
+      Action buttons are gated by authorization scheme; every transition writes a <code>TICKET_HISTORY</code> row.
+    </p>
+  </main>
+</div>
+</body>
+</html>

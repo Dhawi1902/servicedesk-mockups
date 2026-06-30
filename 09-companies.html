@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>09 · Companies — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="top-header">
+    <div class="brand"><div class="logo">🎫</div> ServiceDesk</div>
+    <div class="spacer"></div>
+    <div class="hdr-item">🔔</div>
+    <div class="hdr-item"><span class="role-pill">System Admin</span></div>
+    <div class="hdr-item"><span class="avatar">SA</span> Sara Admin ▾</div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="nav-section">Overview</div>
+    <a class="nav-item" href="02-home.html"><span class="ic">🏠</span> Home</a>
+    <a class="nav-item" href="03-dashboard.html"><span class="ic">📊</span> Dashboard</a>
+    <div class="nav-section">Tickets</div>
+    <a class="nav-item" href="04-ticket-list.html"><span class="ic">🎫</span> Ticket Queue</a>
+    <a class="nav-item" href="06-create-ticket.html"><span class="ic">➕</span> Raise a Ticket</a>
+    <div class="nav-section">Administration</div>
+    <a class="nav-item active" href="09-companies.html"><span class="ic">🏢</span> Companies</a>
+    <a class="nav-item" href="10-users.html"><span class="ic">👥</span> Users</a>
+    <a class="nav-item" href="11-categories.html"><span class="ic">🏷️</span> Categories</a>
+    <div class="nav-section">Account</div>
+    <a class="nav-item" href="12-profile.html"><span class="ic">👤</span> My Profile</a>
+  </aside>
+
+  <main class="main">
+    <div class="tenant-banner">🔐 <b>System Admin only.</b> Authorization scheme <code>IS_SYSTEM_ADMIN</code> gates this whole page.</div>
+
+    <div class="page-bar">
+      <div class="titles"><div class="crumb">Administration / Companies</div><h1>Companies</h1></div>
+      <div class="actions">
+        <button class="btn"><span>💾</span> Save</button>
+        <button class="btn btn-primary"><span>➕</span> Add Row</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="card" style="overflow:hidden;">
+        <div class="toolbar">
+          <div class="search">🔎 <input placeholder="Search companies…"></div>
+          <span class="chip on">Editable grid</span>
+          <span style="flex:1;"></span>
+          <span class="muted" style="font-size:12.5px;">5 companies</span>
+        </div>
+        <table class="t">
+          <thead><tr><th style="width:32px;"></th><th>Company Name</th><th>Type</th><th>Tickets</th><th>Users</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>▦</td><td><b>Northwind IT</b></td><td><span class="role-pill">VENDOR</span></td><td class="muted">—</td><td>8</td><td><span class="tag-active">● Active</span></td><td><a href="#">Edit</a></td></tr>
+            <tr><td>▦</td><td><b>Acme Corp</b></td><td>CLIENT</td><td>129</td><td>14</td><td><span class="tag-active">● Active</span></td><td><a href="#">Edit</a></td></tr>
+            <tr><td>▦</td><td><b>Globex Ltd</b></td><td>CLIENT</td><td>118</td><td>9</td><td><span class="tag-active">● Active</span></td><td><a href="#">Edit</a></td></tr>
+            <tr><td>▦</td><td><b>Initech</b></td><td>CLIENT</td><td>104</td><td>11</td><td><span class="tag-active">● Active</span></td><td><a href="#">Edit</a></td></tr>
+            <tr><td>▦</td><td><b>Umbrella Inc</b></td><td>CLIENT</td><td>124</td><td>7</td><td><span class="tag-inactive">● Inactive</span></td><td><a href="#">Edit</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:11.5px;margin-top:14px;">
+        Page 9 (MUST) — APEX type: Interactive Grid (inline CRUD). FR-5: create / edit / deactivate companies.
+        <code>company_type</code> distinguishes our VENDOR org from CLIENT tenants.
+      </p>
+    </div>
+  </main>
+</div>
+</body>
+</html>

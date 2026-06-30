@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>06 · Raise Ticket — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+<!-- Dimmed parent (Ticket Queue) behind the modal -->
+<div class="app-shell behind" aria-hidden="true">
+  <header class="top-header"><div class="brand"><div class="logo">🎫</div> ServiceDesk</div></header>
+  <aside class="sidebar"></aside>
+  <main class="main"><div class="page-bar"><div class="titles"><h1>Ticket Queue</h1></div></div></main>
+</div>
+
+<div class="modal-backdrop">
+  <div class="modal lg">
+    <div class="m-hd">
+      <h2>Raise a Ticket</h2>
+      <span class="x"><a href="04-ticket-list.html" style="color:inherit;">✕</a></span>
+    </div>
+    <div class="m-bd">
+      <div class="tenant-banner" style="border-radius:6px;margin-bottom:16px;">
+        🔒 This ticket will be filed under <b>Acme Corp</b> automatically (your company).
+      </div>
+      <div class="form-grid cols-2">
+        <div class="field full">
+          <label>Subject <span class="req">*</span></label>
+          <input placeholder="Short summary of the issue" value="Cannot connect to shared drive">
+        </div>
+        <div class="field full">
+          <label>Description <span class="req">*</span></label>
+          <textarea placeholder="Describe what's happening, when it started, who is affected…">When I open File Explorer the X: drive shows a red cross. Restarting didn't help. Started this morning.</textarea>
+          <span class="hint">💡 COULD (FR-24): APEX_AI can auto-suggest Category &amp; Priority from this text.</span>
+        </div>
+        <div class="field">
+          <label>Category <span class="req">*</span></label>
+          <select><option>Network</option><option selected>Hardware</option><option>Software</option><option>Access / Account</option><option>Request</option></select>
+        </div>
+        <div class="field">
+          <label>Priority <span class="req">*</span></label>
+          <select><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="m-ft">
+      <a class="btn" href="04-ticket-list.html">Cancel</a>
+      <a class="btn btn-primary" href="05-ticket-detail.html"><span>➕</span> Submit Ticket</a>
+    </div>
+  </div>
+</div>
+
+<p class="muted" style="position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:11px;color:#cbd5e1;">
+  Page 6 (MUST) — APEX Modal Dialog · Form. Roles: Client User, Client Admin. On submit → generates TKT ref (FR-8), status = New.
+</p>
+</body>
+</html>

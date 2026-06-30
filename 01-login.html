@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01 · Login — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="brand">
+        <div class="logo">🎫</div>
+        <div>
+          <div style="font-weight:700;font-size:15px;">ServiceDesk</div>
+          <div class="muted" style="font-size:12px;">Multi-tenant support portal</div>
+        </div>
+      </div>
+
+      <h1>Sign in</h1>
+      <p class="sub">Use your company email and password.</p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Email <span class="req">*</span></label>
+          <input type="email" placeholder="you@company.com" value="anna@acme.example">
+        </div>
+        <div class="field">
+          <label>Password <span class="req">*</span></label>
+          <input type="password" placeholder="••••••••" value="password">
+        </div>
+        <div class="field">
+          <label class="switch on"><span class="track"></span> Remember this device</label>
+        </div>
+        <a href="03-dashboard.html" class="btn btn-primary" style="justify-content:center;">Sign in</a>
+        <div style="text-align:center;"><a href="#" class="muted" style="font-size:12.5px;">Forgot password?</a></div>
+      </div>
+
+      <hr class="sep">
+      <p class="muted mb-0" style="font-size:11.5px;">
+        FR-1 · FR-2 — On success, a post-auth process stamps the user's
+        <b>company_id</b>, <b>user_id</b> and <b>role</b> into APEX application items.
+        Every client-facing query then filters on <code>:APP_COMPANY_ID</code>.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

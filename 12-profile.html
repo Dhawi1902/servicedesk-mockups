@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>12 · My Profile — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="top-header">
+    <div class="brand"><div class="logo">🎫</div> ServiceDesk</div>
+    <div class="spacer"></div>
+    <div class="hdr-item">🔔</div>
+    <div class="hdr-item"><span class="role-pill">Client User</span></div>
+    <div class="hdr-item"><span class="avatar">AN</span> Anna Nguyen ▾</div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="nav-section">Overview</div>
+    <a class="nav-item" href="02-home.html"><span class="ic">🏠</span> Home</a>
+    <a class="nav-item" href="03-dashboard.html"><span class="ic">📊</span> Dashboard</a>
+    <div class="nav-section">Tickets</div>
+    <a class="nav-item" href="04-ticket-list.html"><span class="ic">🎫</span> My Tickets</a>
+    <a class="nav-item" href="06-create-ticket.html"><span class="ic">➕</span> Raise a Ticket</a>
+    <div class="nav-section">Account</div>
+    <a class="nav-item active" href="12-profile.html"><span class="ic">👤</span> My Profile</a>
+  </aside>
+
+  <main class="main">
+    <div class="page-bar">
+      <div class="titles"><div class="crumb">Account / Profile</div><h1>My Profile</h1></div>
+    </div>
+
+    <div class="content" style="max-width:720px;">
+      <div class="card">
+        <div class="card-hd">Personal details</div>
+        <div class="card-bd">
+          <div style="display:flex;gap:16px;align-items:center;margin-bottom:18px;">
+            <div class="avatar" style="width:60px;height:60px;font-size:22px;">AN</div>
+            <div>
+              <div style="font-weight:600;font-size:16px;">Anna Nguyen</div>
+              <div class="muted">Client User · Acme Corp</div>
+            </div>
+          </div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Full name</label><input value="Anna Nguyen"></div>
+            <div class="field"><label>Email</label><input value="anna@acme.example" disabled><span class="hint">Email is your login — contact your admin to change.</span></div>
+            <div class="field"><label>Role</label><input value="Client User" disabled></div>
+            <div class="field"><label>Company</label><input value="Acme Corp" disabled></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="card-hd">Change password</div>
+        <div class="card-bd">
+          <div class="form-grid cols-2">
+            <div class="field full"><label>Current password</label><input type="password" placeholder="••••••••"></div>
+            <div class="field"><label>New password</label><input type="password" placeholder="••••••••"></div>
+            <div class="field"><label>Confirm new password</label><input type="password" placeholder="••••••••"></div>
+          </div>
+        </div>
+        <div class="m-ft" style="border-radius:0 0 8px 8px;">
+          <button class="btn">Cancel</button>
+          <button class="btn btn-primary">Save Changes</button>
+        </div>
+      </div>
+
+      <p class="muted" style="font-size:11.5px;margin-top:14px;">
+        Page 12 (SHOULD) — APEX type: Form. All roles. View own details; change password. Read-only fields (role, company) are admin-managed.
+      </p>
+    </div>
+  </main>
+</div>
+</body>
+</html>

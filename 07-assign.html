@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>07 · Assign / Reassign — Service Desk</title>
+<link rel="stylesheet" href="assets/apex-mock.css">
+</head>
+<body>
+<div class="app-shell behind" aria-hidden="true">
+  <header class="top-header"><div class="brand"><div class="logo">🎫</div> ServiceDesk</div></header>
+  <aside class="sidebar"></aside>
+  <main class="main"><div class="page-bar"><div class="titles"><h1>TKT-00051</h1></div></div></main>
+</div>
+
+<div class="modal-backdrop">
+  <div class="modal">
+    <div class="m-hd">
+      <h2>Assign Ticket · TKT-00051</h2>
+      <span class="x"><a href="05-ticket-detail.html" style="color:inherit;">✕</a></span>
+    </div>
+    <div class="m-bd">
+      <p class="muted mt-0">Put a support agent on <b>“Production DB connection pool exhausted”</b> (Acme Corp, Critical).</p>
+      <div class="form-grid">
+        <div class="field">
+          <label>Assign to agent <span class="req">*</span></label>
+          <select>
+            <option>— Select an agent —</option>
+            <option selected>Mike Ops · 6 open tickets</option>
+            <option>Lee Tech · 3 open tickets</option>
+            <option>Priya Sen · 9 open tickets</option>
+          </select>
+          <span class="hint">Only users with the Support Agent role appear here.</span>
+        </div>
+        <div class="field">
+          <label>Set status to</label>
+          <select><option selected>Assigned</option><option>In Progress</option></select>
+        </div>
+        <div class="field">
+          <label>Note to agent (optional)</label>
+          <textarea placeholder="Context for the agent…">Critical — Acme finance is down. Please pick up immediately.</textarea>
+        </div>
+        <div class="field">
+          <label class="switch on"><span class="track"></span> Send assignment email (FR-21)</label>
+          <span class="hint">Process runs APEX_MAIL on assign. SHOULD-scope.</span>
+        </div>
+      </div>
+    </div>
+    <div class="m-ft">
+      <a class="btn" href="05-ticket-detail.html">Cancel</a>
+      <a class="btn btn-primary" href="05-ticket-detail.html"><span>👤</span> Assign</a>
+    </div>
+  </div>
+</div>
+
+<p class="muted" style="position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:11px;color:#cbd5e1;">
+  Page 7 (MUST) — APEX Modal Dialog · Form. Role: System Admin (Agent self-assign = open decision A). Writes TICKET_HISTORY: New → Assigned.
+</p>
+</body>
+</html>

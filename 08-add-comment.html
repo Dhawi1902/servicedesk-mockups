@@ -3,43 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>08 · Add Comment — Service Desk</title>
+<title>Add Comment — ServiceDesk</title>
 <link rel="stylesheet" href="assets/apex-mock.css">
 </head>
-<body>
-<div class="app-shell behind" aria-hidden="true">
-  <header class="top-header"><div class="brand"><div class="logo">🎫</div> ServiceDesk</div></header>
-  <aside class="sidebar"></aside>
-  <main class="main"><div class="page-bar"><div class="titles"><h1>TKT-00042</h1></div></div></main>
-</div>
-
-<div class="modal-backdrop">
-  <div class="modal">
-    <div class="m-hd">
-      <h2>Add Comment · TKT-00042</h2>
-      <span class="x"><a href="05-ticket-detail.html" style="color:inherit;">✕</a></span>
-    </div>
-    <div class="m-bd">
-      <div class="form-grid">
-        <div class="field">
-          <label>Comment <span class="req">*</span></label>
-          <textarea placeholder="Type your reply…">Pushed an MTU fix to the concentrator — please test the VPN now and let me know.</textarea>
-        </div>
-        <div class="field">
-          <label class="switch"><span class="track"></span> 🔒 Internal note (agents only — hidden from client)</label>
-          <span class="hint">FR-14 (SHOULD). This toggle is visible only to Support Agent / System Admin via authorization scheme.</span>
-        </div>
-      </div>
-    </div>
-    <div class="m-ft">
-      <a class="btn" href="05-ticket-detail.html">Cancel</a>
-      <a class="btn btn-primary" href="05-ticket-detail.html"><span>💬</span> Post Comment</a>
-    </div>
-  </div>
-</div>
-
-<p class="muted" style="position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:11px;color:#cbd5e1;">
-  Page 8 (MUST) — APEX Modal Dialog · Form. All roles (internal toggle gated). User text escaped with APEX_ESCAPE to prevent XSS.
-</p>
+<body data-page="comment">
+<script src="assets/demo-data.js"></script>
+<script src="assets/app.js"></script>
 </body>
 </html>

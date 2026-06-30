@@ -8,8 +8,9 @@
 </head>
 <body class="gallery-body">
   <div class="gallery-hd">
-    <h1>🎫 ServiceDesk — Page Mockups</h1>
-    <p>Static HTML wireframes for all 12 pages (§6 of the brief). Click any card to open. 10 MUST · 2 SHOULD.</p>
+    <h1>🎫 ServiceDesk — Interactive Demo &amp; Page Mockups</h1>
+    <p>A working, role-aware prototype of all 12 pages (§6 of the brief). Simulated login demonstrates RBAC + tenant isolation. 10 MUST · 2 SHOULD.</p>
+    <p style="margin-top:14px;"><a class="btn btn-primary" href="01-login.html" style="font-size:14px;">▶ Launch the live demo (Sign in)</a></p>
   </div>
 
   <div class="gallery-grid">
@@ -29,13 +30,13 @@
 
   <div style="padding:0 36px 40px;max-width:900px;">
     <div class="card"><div class="card-bd">
-      <h3 class="mt-0">How to read these</h3>
+      <h3 class="mt-0">How to use the demo</h3>
       <ul style="margin:0;padding-left:18px;line-height:1.8;">
-        <li>These are <b>layout mockups</b>, not the real APEX app — links between pages work so you can click through a flow.</li>
-        <li>Each page footer notes its <b>APEX page type</b>, <b>priority</b>, <b>roles</b>, and the <b>FR-#</b> it satisfies.</li>
-        <li>The orange banner shows <b>tenant isolation</b> in action (what each role can see).</li>
-        <li>Try the flow: <a href="01-login.html">Login</a> → Dashboard → Queue → Ticket Detail → Assign / Comment.</li>
-        <li>Pages reflect the recommended demo spine (1, 3, 4, 5, 6, 7, 9, 10) plus the rest.</li>
+        <li>Click <b>Launch the live demo</b> above (or any card) and <b>sign in</b> — password is <code>demo</code> for every account, or use the one-click persona buttons.</li>
+        <li><b>See tenant isolation:</b> sign in as <b>Anna (Client User, Acme)</b> → you see only Acme's tickets. Sign out, sign in as <b>Sara (System Admin)</b> → you see <b>every</b> company.</li>
+        <li><b>Run the workflow:</b> raise a ticket → it appears in the queue → assign an agent (as System Admin) → start work / comment / resolve → watch the <b>history</b> and <b>dashboard counts</b> update.</li>
+        <li>Changes <b>persist in your browser</b>. Use <b>↺ Reset demo</b> (top-right) to restore the seed data.</li>
+        <li>⚠️ Simulated client-side login — <b>not real security</b>. Real auth + isolation are built in Oracle APEX.</li>
       </ul>
     </div></div>
   </div>

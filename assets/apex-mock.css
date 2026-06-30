@@ -179,6 +179,33 @@ a:hover { text-decoration: underline; }
   display: inline-flex; gap: 6px; align-items: center;
 }
 .chip.on { background: var(--c-nav-active); border-color:#b9d8f5; color: var(--c-primary-d); }
+.chip { text-decoration: none; }
+.chip:hover { border-color: var(--c-primary); }
+.chip.active { background: var(--c-primary); border-color: var(--c-primary); color:#fff; }
+.chip .chip-n { background: rgba(0,0,0,.08); border-radius: 10px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+.chip.active .chip-n { background: rgba(255,255,255,.25); }
+.chip.proj { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; }
+
+/* ---------- Project cards (Home / project picker) -------------------- */
+.proj-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.proj-toolbar .search {
+  flex: 1; min-width: 200px; max-width: 360px;
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--c-border); border-radius: 4px;
+  padding: 6px 10px; background: #fff; color: var(--c-muted);
+}
+.proj-toolbar .search input { border: 0; outline: 0; flex: 1; font-size: 13px; }
+.proj-card { text-decoration: none; transition: box-shadow .12s, transform .12s; }
+.proj-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+.proj-card .proj-ico {
+  width: 46px; height: 46px; border-radius: 8px;
+  background: var(--c-nav-active); color: var(--c-primary-d);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 16px; margin-bottom: 10px;
+}
+.proj-card .proj-name { font-weight: 600; font-size: 16px; color: var(--c-text); }
+.proj-card .proj-stats { display: flex; gap: 14px; margin-top: 8px; color: var(--c-muted); font-size: 12.5px; }
+.proj-card .proj-stats b { color: var(--c-text); }
 
 table.t {
   width: 100%; border-collapse: collapse; background: var(--c-surface);

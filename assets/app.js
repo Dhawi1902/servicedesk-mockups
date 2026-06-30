@@ -115,10 +115,12 @@
   function navModel(u) {
     var queueLabel = isClient(u) ? 'My Tickets' : 'Ticket Queue';
     var items = [
-      { key: 'home', label: 'Home', icon: '🏠', href: '02-home.html', section: 'Overview' },
-      { key: 'dashboard', label: 'Dashboard', icon: '📊', href: '03-dashboard.html', section: 'Overview' },
-      { key: 'queue', label: queueLabel, icon: '🎫', href: '04-ticket-list.html', section: 'Tickets' }
+      { key: 'home', label: 'Projects', icon: '📁', href: '02-home.html', section: 'Overview' }
     ];
+    // Dashboard is an oversight view — relevant to the agent (personal stats)
+    // and the admin (cross-company), not to client users tracking their own tickets.
+    if (isAdmin(u) || isAgent(u)) items.push({ key: 'dashboard', label: 'Dashboard', icon: '📊', href: '03-dashboard.html', section: 'Overview' });
+    items.push({ key: 'queue', label: queueLabel, icon: '🎫', href: '04-ticket-list.html', section: 'Tickets' });
     if (canCreate(u)) items.push({ key: 'create', label: 'Raise a Ticket', icon: '➕', href: '06-create-ticket.html', section: 'Tickets' });
     if (isAdmin(u)) {
       items.push({ key: 'companies', label: 'Companies', icon: '🏢', href: '09-companies.html', section: 'Administration' });
@@ -171,9 +173,14 @@
            '<div class="actions">' + (actions || '') + '</div></div>';
   }
 
+  // Role-based landing: doers go straight to their work list; the System
+  // Admin (whose job is oversight) lands on the dashboard / command center.
+  function landingFor(u) { return isAdmin(u) ? '03-dashboard.html' : '04-ticket-list.html'; }
+
   /* ---------- page: LOGIN ---------- */
   function renderLogin() {
-    if (currentUser()) { location.href = '03-dashboard.html'; return; }
+    var cu = currentUser();
+    if (cu) { location.href = landingFor(cu); return; }
     var personas = DB.users.map(function (u) {
       return '<button class="persona" onclick="sd.quickLogin(\'' + u.id + '\')">' +
         '<span class="avatar">' + initials(u.name) + '</span>' +
@@ -203,24 +210,57 @@
       '</div></div>';
   }
 
-  /* ---------- page: HOME ---------- */
+  /* ---------- page: HOME (project picker) ---------- */
+  // Mirrors the real IMS: log in, see the projects (client companies) you
+  // belong to / cover as cards, pick one to drill into its tickets.
   function renderHome(u) {
+    var companyIds;
+    if (isAdmin(u)) companyIds = DB.companies.filter(function (c) { return c.type === 'CLIENT'; }).map(function (c) { return c.id; });
+    else if (isAgent(u)) companyIds = agentCompanyIds(u);
+    else companyIds = [u.companyId];
+    var showGrab = isAdmin(u) || isAgent(u);
+
+    // Compute per-project stats once, then sort by activity so the projects
+    // that need attention float to the top (open desc, then unassigned, then name).
+    // This is what keeps the picker usable when an agent covers 30+ clients.
+    var projects = companyIds.map(function (cid) {
+      var c = company(cid);
+      var ct = visibleTickets(u).filter(function (t) { return t.companyId === cid; });
+      return { id: cid, name: c.name,
+        open: ct.filter(function (t) { return t.status !== 'Closed' && t.status !== 'Resolved'; }).length,
+        unassigned: ct.filter(function (t) { return t.assignedTo == null && t.status !== 'Closed'; }).length,
+        total: ct.length };
+    }).sort(function (a, b) { return (b.open - a.open) || (b.unassigned - a.unassigned) || a.name.localeCompare(b.name); });
+
+    var cards = projects.map(function (p) {
+      var second = showGrab ? '<span><b>' + p.unassigned + '</b> unassigned</span>' : '<span><b>' + p.total + '</b> total</span>';
+      return '<a class="card proj-card" data-name="' + esc(p.name.toLowerCase()) + '" href="04-ticket-list.html?company=' + encodeURIComponent(p.id) + '"><div class="card-bd">' +
+        '<div class="proj-ico">' + initials(p.name) + '</div>' +
+        '<div class="proj-name">' + esc(p.name) + '</div>' +
+        '<div class="proj-stats"><span><b>' + p.open + '</b> open</span>' + second + '</div>' +
+        '</div></a>';
+    }).join('') || '<div class="muted">No projects assigned to you yet. Ask a System Admin to add you to a client.</div>';
+
+    // Search only appears once there are enough projects to warrant it — keeps
+    // the page clean for the common 1–6 project case, scales for the 30 case.
+    var searchBar = projects.length > 6
+      ? '<div class="proj-toolbar"><div class="search">🔎 <input id="projq" placeholder="Search projects…" oninput="sd.filterProjects()"></div>' +
+        '<span class="muted" id="projcount" style="font-size:12.5px;">' + projects.length + ' projects</span></div>'
+      : '';
+
     var mine = visibleTickets(u).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
-    var cards =
-      (canCreate(u) ? card('06-create-ticket.html', '➕', 'Raise a Ticket', 'Report a new issue or request.') : '') +
-      card('04-ticket-list.html', '🎫', isClient(u) ? 'My Tickets' : 'Ticket Queue', 'Browse and filter tickets.') +
-      card('03-dashboard.html', '📊', 'Dashboard', 'A quick overview of tickets.');
-    function card(href, ic, t, d) {
-      return '<a class="card" href="' + href + '" style="color:inherit;"><div class="card-bd">' +
-        '<div style="font-size:30px;">' + ic + '</div><div style="font-weight:600;font-size:16px;margin-top:6px;">' + t + '</div>' +
-        '<div class="muted">' + d + '</div></div></a>';
-    }
     var rows = mine.slice(0, 6).map(function (t) {
       return '<tr><td><a class="ref" href="05-ticket-detail.html?id=' + t.id + '">' + t.ref + '</a></td>' +
         '<td>' + esc(t.subject) + '</td><td>' + statusBadge(t.status) + '</td><td class="muted">' + timeAgo(t.updatedAt) + '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="muted">No tickets yet.</td></tr>';
-    var html = pageBar('Home', 'Welcome back, ' + esc(u.name.split(' ')[0]) + ' 👋', '') +
-      '<div class="content"><div class="grid cols-3">' + cards + '</div>' +
+
+    var lead = isClient(u) ? 'Your workspace'
+      : (isAdmin(u) ? 'All client companies — pick one to drill into its tickets'
+                    : 'Your assigned projects — pick one to see its tickets');
+    var html = pageBar('Home / Projects', 'Welcome back, ' + esc(u.name.split(' ')[0]) + ' 👋', '') +
+      '<div class="content"><p class="muted" style="margin-top:0;">' + lead + '</p>' +
+      searchBar +
+      '<div class="grid cols-3" id="projgrid">' + cards + '</div>' +
       '<div class="card" style="margin-top:18px;"><div class="card-hd">Recent activity</div>' +
       '<table class="t"><thead><tr><th>Ref</th><th>Subject</th><th>Status</th><th>Updated</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     renderShell(u, 'home', html, tenantBanner(u));
@@ -288,9 +328,37 @@
   }
 
   /* ---------- page: QUEUE ---------- */
+  // Filter chips differ by role. A doer (agent) lands on "Assigned to me";
+  // a client just sees their own tickets so they only need Open / All.
+  function queueFilters(u) {
+    if (isClient(u)) return [{ f: 'open', label: 'Open' }, { f: 'all', label: 'All' }];
+    return [{ f: 'mine', label: 'Assigned to me' }, { f: 'unassigned', label: 'Unassigned' }, { f: 'all', label: 'All' }];
+  }
+  function defaultFilter(u) { return isAgent(u) ? 'mine' : (isAdmin(u) ? 'all' : 'open'); }
+  function applyQueueFilter(ts, u, f) {
+    if (f === 'mine') return ts.filter(function (t) { return t.assignedTo === u.id; });
+    if (f === 'unassigned') return ts.filter(function (t) { return t.assignedTo == null && t.status !== 'Closed'; });
+    if (f === 'open') return ts.filter(function (t) { return t.status !== 'Closed'; });
+    return ts; // all
+  }
   function renderQueue(u) {
-    var ts = visibleTickets(u).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+    var all = visibleTickets(u);
+    var companyId = qs('company');                 // set when arriving from a project card
+    if (companyId) all = all.filter(function (t) { return t.companyId === companyId; });
+    var filters = queueFilters(u);
+    var f = qs('f') || defaultFilter(u);
+    if (!filters.some(function (x) { return x.f === f; })) f = defaultFilter(u);
+    var ts = applyQueueFilter(all, u, f).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
     var showCompany = isAdmin(u) || isAgent(u);
+    var cq = companyId ? '&company=' + encodeURIComponent(companyId) : '';
+
+    var chips = filters.map(function (x) {
+      var n = applyQueueFilter(all, u, x.f).length;
+      return '<a class="chip' + (x.f === f ? ' active' : '') + '" href="04-ticket-list.html?f=' + x.f + cq + '">' +
+        esc(x.label) + ' <span class="chip-n">' + n + '</span></a>';
+    }).join('');
+    var projTag = companyId ? '<a class="chip proj" href="04-ticket-list.html?f=' + f + '" title="Clear project filter">📁 ' + esc(company(companyId).name) + ' ✕</a>' : '';
+
     var rows = ts.map(function (t) {
       var asg = t.assignedTo ? esc(user(t.assignedTo).name) : '<span class="muted">— Unassigned</span>';
       return '<tr>' +
@@ -299,11 +367,18 @@
         (showCompany ? '<td>' + esc(company(t.companyId).name) + '</td>' : '') +
         '<td>' + prioBadge(t.priority) + '</td><td>' + statusBadge(t.status) + '</td>' +
         '<td>' + asg + '</td><td class="muted">' + timeAgo(t.updatedAt) + '</td></tr>';
-    }).join('') || '<tr><td colspan="7" class="muted">No tickets visible to you.</td></tr>';
+    }).join('');
+    if (!rows) {
+      var emptyMsg = { mine: 'Nothing is assigned to you right now — check <b>Unassigned</b> to pick up work.',
+        unassigned: 'No unassigned tickets in your projects. The queue is clear. 🎉',
+        open: 'No open tickets — you’re all caught up. 🎉', all: 'No tickets visible to you.' }[f] || 'No tickets visible to you.';
+      rows = '<tr><td colspan="' + (showCompany ? 7 : 6) + '" class="muted">' + emptyMsg + '</td></tr>';
+    }
     var actions = canCreate(u) ? '<a class="btn btn-primary" href="06-create-ticket.html">➕ New Ticket</a>' : '';
     var html = pageBar('Tickets / Queue', isClient(u) ? 'My Tickets' : 'Ticket Queue', actions) +
       '<div class="content"><div class="card" style="overflow:hidden;">' +
-      '<div class="toolbar"><div class="search">🔎 <input id="q" placeholder="Search reference or keyword…" oninput="sd.filterQueue()"></div>' +
+      '<div class="toolbar">' + chips + projTag +
+      '<div class="search">🔎 <input id="q" placeholder="Search reference or keyword…" oninput="sd.filterQueue()"></div>' +
       '<span class="muted" style="font-size:12.5px;margin-left:auto;" id="qcount">' + ts.length + ' results</span></div>' +
       '<table class="t" id="qtable"><thead><tr><th>Ref</th><th>Subject</th>' + (showCompany ? '<th>Company</th>' : '') +
       '<th>Priority</th><th>Status</th><th>Assignee</th><th>Updated</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
@@ -495,9 +570,9 @@
       var u = DB.users.find(function (x) { return x.email.toLowerCase() === email && x.password === pwd; });
       if (!u) { var e = document.getElementById('loginErr'); e.style.display = 'block'; e.textContent = 'Invalid email or password. (Hint: password is "demo".)'; return; }
       localStorage.setItem(LS_SESSION, JSON.stringify({ userId: u.id }));
-      location.href = '03-dashboard.html';
+      location.href = landingFor(u);
     },
-    quickLogin: function (uid) { localStorage.setItem(LS_SESSION, JSON.stringify({ userId: uid })); location.href = '03-dashboard.html'; },
+    quickLogin: function (uid) { localStorage.setItem(LS_SESSION, JSON.stringify({ userId: uid })); location.href = landingFor(user(uid)); },
     logout: function () { localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; },
     reset: function () { if (confirm('Reset all demo data and sign out?')) { localStorage.removeItem(LS_DATA); localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; } },
     createTicket: function () {
@@ -554,6 +629,12 @@
       var rows = document.querySelectorAll('#qtable tbody tr'), shown = 0;
       rows.forEach(function (r) { var hit = r.textContent.toLowerCase().indexOf(q) >= 0; r.style.display = hit ? '' : 'none'; if (hit) shown++; });
       document.getElementById('qcount').textContent = shown + ' results';
+    },
+    filterProjects: function () {
+      var q = document.getElementById('projq').value.toLowerCase().trim();
+      var cards = document.querySelectorAll('#projgrid .proj-card'), shown = 0;
+      cards.forEach(function (c) { var hit = (c.getAttribute('data-name') || '').indexOf(q) >= 0; c.style.display = hit ? '' : 'none'; if (hit) shown++; });
+      var el = document.getElementById('projcount'); if (el) el.textContent = shown + ' projects';
     }
   };
   function statusActionName(o, n) {

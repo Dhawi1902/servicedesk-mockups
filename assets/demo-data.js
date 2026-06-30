@@ -26,6 +26,18 @@ window.DEMO_SEED = {
     { id: 'u8', name: 'Eve Park',     email: 'eve@initech.example',     password: 'demo', role: 'Client User',   companyId: 'C3' }
   ],
 
+  // Which CLIENT companies (projects) each Support Agent covers.
+  // Agents only see tickets for their assigned projects — this kills the
+  // cross-project "noise" (an agent never sees clients they're not on).
+  // System Admin is intentionally absent: admins see every company by role.
+  // In APEX this is a small join table (AGENT_COMPANIES: user_id + company_id).
+  agentCompanies: [
+    { userId: 'u2', companyId: 'C1' },   // Mike covers Acme
+    { userId: 'u2', companyId: 'C2' },   // Mike covers Globex
+    { userId: 'u3', companyId: 'C1' },   // Lee covers Acme
+    { userId: 'u3', companyId: 'C3' }    // Lee covers Initech (not Globex)
+  ],
+
   categories: [
     { id: 'cat1', name: 'Network' },
     { id: 'cat2', name: 'Hardware' },
@@ -45,11 +57,11 @@ window.DEMO_SEED = {
     { id:'t42', ref:'TKT-00042', companyId:'C1', subject:'VPN disconnects every few minutes', description:'Finance team on the Acme network reports the VPN dropping every 3-5 minutes since this morning.', categoryId:'cat1', priority:'Medium', status:'In Progress', createdBy:'u4', assignedTo:'u2', createdAt:'2026-06-30T01:14:00', updatedAt:'2026-06-30T01:38:00' },
     { id:'t41', ref:'TKT-00041', companyId:'C1', subject:'Request: provision 5 new mailboxes', description:'Need 5 new email mailboxes for incoming Acme interns.', categoryId:'cat5', priority:'Low', status:'New', createdBy:'u5', assignedTo:null, createdAt:'2026-06-29T22:00:00', updatedAt:'2026-06-29T22:00:00' },
     { id:'t39', ref:'TKT-00039', companyId:'C1', subject:'Cannot export monthly report to PDF', description:'The export button spins forever and never produces a PDF.', categoryId:'cat3', priority:'Medium', status:'Resolved', createdBy:'u4', assignedTo:'u3', createdAt:'2026-06-28T09:00:00', updatedAt:'2026-06-29T16:00:00' },
-    { id:'t38', ref:'TKT-00038', companyId:'C2', subject:'Printer on 3rd floor offline', description:'Shared printer GLOBEX-P3 is not reachable.', categoryId:'cat2', priority:'Low', status:'On Hold', createdBy:'u7', assignedTo:'u3', createdAt:'2026-06-27T11:20:00', updatedAt:'2026-06-29T10:00:00' },
+    { id:'t38', ref:'TKT-00038', companyId:'C2', subject:'Printer on 3rd floor offline', description:'Shared printer GLOBEX-P3 is not reachable.', categoryId:'cat2', priority:'Low', status:'On Hold', createdBy:'u7', assignedTo:'u2', createdAt:'2026-06-27T11:20:00', updatedAt:'2026-06-29T10:00:00' },
     { id:'t35', ref:'TKT-00035', companyId:'C1', subject:'New laptop setup for finance hire', description:'Provision and image a laptop for a new Acme finance staff member.', categoryId:'cat2', priority:'Medium', status:'Closed', createdBy:'u5', assignedTo:'u2', createdAt:'2026-06-24T08:00:00', updatedAt:'2026-06-26T14:00:00' },
     { id:'t31', ref:'TKT-00031', companyId:'C1', subject:'Add new user license', description:'Please add one more licensed seat for the analytics tool.', categoryId:'cat5', priority:'Low', status:'Closed', createdBy:'u4', assignedTo:'u2', createdAt:'2026-06-20T10:00:00', updatedAt:'2026-06-22T09:00:00' },
-    { id:'t28', ref:'TKT-00028', companyId:'C3', subject:'Email going to spam', description:'Outbound email from Initech domain is landing in client spam folders.', categoryId:'cat1', priority:'High', status:'In Progress', createdBy:'u8', assignedTo:'u2', createdAt:'2026-06-26T13:00:00', updatedAt:'2026-06-30T06:00:00' },
-    { id:'t24', ref:'TKT-00024', companyId:'C2', subject:'Password reset not arriving', description:'Reset emails are delayed by 20+ minutes.', categoryId:'cat4', priority:'Medium', status:'Resolved', createdBy:'u6', assignedTo:'u3', createdAt:'2026-06-25T09:30:00', updatedAt:'2026-06-28T12:00:00' },
+    { id:'t28', ref:'TKT-00028', companyId:'C3', subject:'Email going to spam', description:'Outbound email from Initech domain is landing in client spam folders.', categoryId:'cat1', priority:'High', status:'In Progress', createdBy:'u8', assignedTo:'u3', createdAt:'2026-06-26T13:00:00', updatedAt:'2026-06-30T06:00:00' },
+    { id:'t24', ref:'TKT-00024', companyId:'C2', subject:'Password reset not arriving', description:'Reset emails are delayed by 20+ minutes.', categoryId:'cat4', priority:'Medium', status:'Resolved', createdBy:'u6', assignedTo:'u2', createdAt:'2026-06-25T09:30:00', updatedAt:'2026-06-28T12:00:00' },
     { id:'t19', ref:'TKT-00019', companyId:'C1', subject:'Shared drive missing files', description:'A folder on the X: drive appears empty after the weekend.', categoryId:'cat3', priority:'High', status:'Assigned', createdBy:'u5', assignedTo:'u3', createdAt:'2026-06-29T18:00:00', updatedAt:'2026-06-29T18:30:00' }
   ],
 

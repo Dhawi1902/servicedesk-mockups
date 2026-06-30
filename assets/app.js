@@ -6,7 +6,7 @@
    ========================================================================= */
 (function () {
   'use strict';
-  var LS_DATA = 'sd_demo_data_v2', LS_SESSION = 'sd_demo_session_v2';
+  var LS_DATA = 'sd_demo_data_v3', LS_SESSION = 'sd_demo_session_v3';
 
   /* ---------- store ---------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -55,11 +55,22 @@
   function isClientAdmin(u) { return u.role === 'Client Admin'; }
   function isClient(u) { return u.role === 'Client User' || u.role === 'Client Admin'; }
 
+  // Support Agents are scoped to the CLIENT companies (projects) they cover,
+  // so they never see tickets from clients they're not assigned to.
+  function agentCompanyIds(u) {
+    return (DB.agentCompanies || [])
+      .filter(function (m) { return m.userId === u.id; })
+      .map(function (m) { return m.companyId; });
+  }
+  function agentCovers(userId, companyId) {
+    return (DB.agentCompanies || []).some(function (m) { return m.userId === userId && m.companyId === companyId; });
+  }
+
   // The heart of the demo: who can see which tickets.
   function visibleTickets(u) {
     return DB.tickets.filter(function (t) {
       if (isAdmin(u)) return true;                                   // everything, all companies
-      if (isAgent(u)) return t.assignedTo === u.id || t.assignedTo == null; // assigned to me + open queue
+      if (isAgent(u)) return agentCompanyIds(u).indexOf(t.companyId) >= 0; // only their assigned projects
       if (isClientAdmin(u)) return t.companyId === u.companyId;      // whole company
       return t.companyId === u.companyId && t.createdBy === u.id;    // client user: own tickets only
     });
@@ -147,7 +158,11 @@
   }
   function tenantBanner(u) {
     if (isAdmin(u)) return '<div class="tenant-banner">🌐 <b>System Admin</b> — viewing <b>all companies</b>. Other roles are scoped to their own company.</div>';
-    if (isAgent(u)) return '<div class="tenant-banner">🛠️ <b>Support Agent</b> — you see tickets <b>assigned to you</b> plus the <b>unassigned open queue</b>.</div>';
+    if (isAgent(u)) {
+      var projNames = agentCompanyIds(u).map(function (id) { return company(id).name; });
+      var projList = projNames.length ? projNames.join(', ') : 'no projects assigned yet';
+      return '<div class="tenant-banner">🛠️ <b>Support Agent</b> — you only see tickets for <b>your assigned projects</b>: ' + esc(projList) + '. Other clients are hidden.</div>';
+    }
     if (isClientAdmin(u)) return '<div class="tenant-banner">🔒 <b>' + esc(company(u.companyId).name) + '</b> only — you see <b>all tickets for your company</b> (never other companies’).</div>';
     return '<div class="tenant-banner">🔒 <b>' + esc(company(u.companyId).name) + '</b> — you see <b>only your own tickets</b>.</div>';
   }
@@ -383,7 +398,10 @@
   function renderAssign(u) {
     var t = DB.tickets.find(function (x) { return x.id === qs('id'); });
     if (!t || !canAssign(u)) { renderShell(u, 'queue', notFound('Not allowed, or ticket missing.'), ''); return; }
-    var agents = DB.users.filter(function (x) { return x.role === 'Support Agent'; }).map(function (a) {
+    // Only agents who cover this client's project are offered (fall back to all if none).
+    var pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
+    if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent'; });
+    var agents = pool.map(function (a) {
       var load = DB.tickets.filter(function (x) { return x.assignedTo === a.id && x.status !== 'Closed'; }).length;
       return '<option value="' + a.id + '"' + (t.assignedTo === a.id ? ' selected' : '') + '>' + esc(a.name) + ' · ' + load + ' open</option>';
     }).join('');

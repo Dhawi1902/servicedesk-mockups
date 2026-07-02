@@ -243,11 +243,15 @@ table.t .muted { color: var(--c-muted); }
 .pr-high     { background:#ffedd5; color:#c2410c; }
 .pr-critical { background:#fee2e2; color:#b91c1c; }
 
-/* Severity badges (Critical/Major/Minor/Cosmetic, client-set — Decision K) */
+/* Severity badges (Critical/Major/Minor/Low, client-set — Decision K) */
 .sev-critical { background:#fee2e2; color:#b91c1c; font-weight:700; }
 .sev-major    { background:#ffedd5; color:#c2410c; }
 .sev-minor    { background:#e0f2fe; color:#0369a1; }
-.sev-cosmetic { background:#f1f5f9; color:#475569; }
+.sev-low      { background:#f1f5f9; color:#475569; }
+
+/* Ticket type badges (FR-30) */
+.type-incident { background:#fef2f2; color:#dc2626; }
+.type-request  { background:#eff6ff; color:#2563eb; }
 
 /* SLA breach indicators (FR-23) */
 .sla-badge { font-size:11px; font-weight:600; white-space:nowrap; }

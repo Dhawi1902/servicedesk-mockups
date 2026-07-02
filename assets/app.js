@@ -4,20 +4,30 @@
    NOT real authentication. Demonstrates role-based access, tenant
    isolation, and the ticket lifecycle. Real version is built in APEX.
 
-   Updated to match the latest brief (2026-06-30):
+   Updated to match the latest brief (2026-07-02):
    - Severity (client-set) vs Priority (support-set) — Decision K / FR-7
-   - SLA per severity with breach indicators — FR-23
+   - Severity values: Critical/Major/Minor/Low (was Cosmetic → Low)
+   - SLA per severity per company with breach indicators — FR-23
    - CSAT star rating after closure — FR-27
-   - Escalate action (reassign + raise priority) — FR-26
+   - Escalate action (reassign + raise priority, tier-filtered) — FR-26
    - Client can assign from mapped agents — Decision J / FR-10
    - Agent self-assign from open queue — Decision A / FR-10
    - Dashboard analytics (avg resolution time, per-agent counts) — FR-28
    - Ticket age column — FR-15
    - Auto-acknowledgement email on create — FR-29
+   - Ticket type INCIDENT / SERVICE_REQUEST — FR-30
+   - First-response tracking — FR-31
+   - SLA Compliance % KPI — FR-32
+   - Severity guidance text — FR-34
+   - Resolution code + summary on resolve — FR-36
+   - Triage gate (priority required before In Progress) — FR-37
+   - Client User department scoping — Decision N
+   - Reopen count tracking
+   - SLA Targets management page (Page 13)
    ========================================================================= */
 (function () {
   'use strict';
-  var LS_DATA = 'sd_demo_data_v4', LS_SESSION = 'sd_demo_session_v4';
+  var LS_DATA = 'sd_demo_data_v5', LS_SESSION = 'sd_demo_session_v5';
 
   /* ---------- store ---------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -30,8 +40,24 @@
   }
   function save() { localStorage.setItem(LS_DATA, JSON.stringify(DB)); }
   var DB = loadData();
-  // Backfill attachments array for users with cached v4 data (before FR-25)
-  if (!DB.attachments) { DB.attachments = []; save(); }
+  // Backfill arrays/fields for users with cached data from earlier versions
+  if (!DB.attachments) { DB.attachments = []; }
+  if (!DB.departments) { DB.departments = []; }
+  if (!DB.ticketTypes) { DB.ticketTypes = ['INCIDENT', 'SERVICE_REQUEST']; }
+  if (!DB.resolutionCodes) { DB.resolutionCodes = ['FIXED', 'WORKAROUND', 'KNOWN_ERROR', 'CANNOT_REPRODUCE', 'DUPLICATE', 'USER_EDUCATION', 'NOT_AN_INCIDENT']; }
+  DB.tickets.forEach(function (t) {
+    if (t.ticketType === undefined) t.ticketType = 'INCIDENT';
+    if (t.departmentId === undefined) t.departmentId = null;
+    if (t.resolutionCode === undefined) t.resolutionCode = null;
+    if (t.resolutionSummary === undefined) t.resolutionSummary = null;
+    if (t.reopenCount === undefined) t.reopenCount = 0;
+    if (t.firstResponseAt === undefined) t.firstResponseAt = null;
+  });
+  DB.users.forEach(function (x) {
+    if (x.tier === undefined) x.tier = null;
+    if (x.departmentId === undefined) x.departmentId = null;
+  });
+  save();
 
   /* ---------- session ---------- */
   function getSession() { var r = localStorage.getItem(LS_SESSION); return r ? JSON.parse(r) : null; }
@@ -64,8 +90,8 @@
   }
 
   /* ---------- SLA (FR-23) ---------- */
-  function slaTarget(severity) {
-    return (DB.slaTargets || []).find(function (s) { return s.severity === severity; });
+  function slaTarget(companyId, severity) {
+    return (DB.slaTargets || []).find(function (s) { return s.companyId === companyId && s.severity === severity; });
   }
   function slaStatus(ticket) {
     if (!ticket.slaDueDate) return null;
@@ -89,11 +115,21 @@
 
   /* ---------- badges ---------- */
   var STATUS_CLS = { 'New': 'st-new', 'Assigned': 'st-assigned', 'In Progress': 'st-progress', 'On Hold': 'st-hold', 'Resolved': 'st-resolved', 'Closed': 'st-closed' };
-  var SEV_CLS = { 'Critical': 'sev-critical', 'Major': 'sev-major', 'Minor': 'sev-minor', 'Cosmetic': 'sev-cosmetic' };
+  var SEV_CLS = { 'Critical': 'sev-critical', 'Major': 'sev-major', 'Minor': 'sev-minor', 'Low': 'sev-low' };
   var PRIO_CLS = { 'P1': 'pr-critical', 'P2': 'pr-high', 'P3': 'pr-medium', 'P4': 'pr-low' };
   function statusBadge(s) { return '<span class="badge ' + (STATUS_CLS[s] || '') + '"><span class="dot"></span>' + esc(s) + '</span>'; }
   function sevBadge(s) { return s ? '<span class="badge ' + (SEV_CLS[s] || '') + '">' + esc(s) + '</span>' : ''; }
   function prioBadge(p) { return p ? '<span class="badge ' + (PRIO_CLS[p] || '') + '">' + esc(p) + '</span>' : '<span class="muted">—</span>'; }
+
+  /* ---------- ticket type badge (FR-30) ---------- */
+  var TYPE_CLS = { 'INCIDENT': 'type-incident', 'SERVICE_REQUEST': 'type-request' };
+  function typeBadge(t) {
+    var label = t === 'SERVICE_REQUEST' ? 'Service Request' : 'Incident';
+    return '<span class="badge ' + (TYPE_CLS[t] || '') + '">' + label + '</span>';
+  }
+
+  /* ---------- department lookup ---------- */
+  function department(id) { return (DB.departments || []).find(function (d) { return d.id === id; }) || {}; }
 
   /* ---------- CSAT stars (FR-27) ---------- */
   function csatStars(score, editable) {
@@ -195,7 +231,7 @@
       if (isAdmin(u)) return true;
       if (isAgent(u)) return agentCompanyIds(u).indexOf(t.companyId) >= 0;
       if (isClientAdmin(u)) return t.companyId === u.companyId;
-      return t.companyId === u.companyId && t.createdBy === u.id;
+      return t.companyId === u.companyId && t.departmentId === u.departmentId;
     });
   }
   function canSee(u, t) { return visibleTickets(u).some(function (x) { return x.id === t.id; }); }
@@ -228,13 +264,13 @@
         if (agentOrAdmin) out.push({ label: 'Start Work', to: 'In Progress', cls: 'btn-primary', icon: '&#9654;' });
         break;
       case 'In Progress':
-        if (agentOrAdmin) { out.push({ label: 'Put On Hold', to: 'On Hold', cls: '', icon: '&#9208;' }); out.push({ label: 'Resolve', to: 'Resolved', cls: 'btn-hot', icon: '&#10003;' }); }
+        if (agentOrAdmin) { out.push({ label: 'Put On Hold', to: 'On Hold', cls: '', icon: '&#9208;' }); out.push({ label: 'Resolve', to: 'Resolved', cls: 'btn-hot', icon: '&#10003;', action: 'resolve' }); }
         break;
       case 'On Hold':
         if (agentOrAdmin) out.push({ label: 'Resume', to: 'In Progress', cls: 'btn-primary', icon: '&#9654;' });
         break;
       case 'Resolved':
-        if (clientSide) { out.push({ label: 'Close', to: 'Closed', cls: 'btn-primary', icon: '&#10003;' }); out.push({ label: 'Reopen', to: 'In Progress', cls: '', icon: '&#8634;' }); }
+        if (clientSide) { out.push({ label: 'Close', to: 'Closed', cls: 'btn-primary', icon: '&#10003;', action: 'close' }); out.push({ label: 'Reopen', to: 'In Progress', cls: '', icon: '&#8634;' }); }
         break;
     }
     return out;
@@ -263,6 +299,7 @@
       items.push({ key: 'companies', label: 'Companies', icon: '&#127970;', href: '09-companies.html', section: 'Administration' });
       items.push({ key: 'users', label: 'Users', icon: '&#128101;', href: '10-users.html', section: 'Administration' });
       items.push({ key: 'categories', label: 'Categories', icon: '&#127991;&#65039;', href: '11-categories.html', section: 'Administration' });
+      items.push({ key: 'sla', label: 'SLA Targets', icon: '&#9202;', href: '13-sla-targets.html', section: 'Administration' });
     }
     items.push({ key: 'profile', label: 'My Profile', icon: '&#128100;', href: '12-profile.html', section: 'Account' });
     return items;
@@ -303,7 +340,8 @@
       return '<div class="tenant-banner">&#128736;&#65039; <b>Support Agent</b> — you only see tickets for <b>your assigned projects</b>: ' + esc(projList) + '. Other clients are hidden.</div>';
     }
     if (isClientAdmin(u)) return '<div class="tenant-banner">&#128274; <b>' + esc(company(u.companyId).name) + '</b> only — you see <b>all tickets for your company</b> (never other companies\u2019).</div>';
-    return '<div class="tenant-banner">&#128274; <b>' + esc(company(u.companyId).name) + '</b> — you see <b>only your own tickets</b>.</div>';
+    var dept = department(u.departmentId);
+    return '<div class="tenant-banner">&#128274; <b>' + esc(company(u.companyId).name) + '</b> / <b>' + esc(dept.name || 'General') + '</b> — you see <b>all tickets in your department</b>.</div>';
   }
   function pageBar(crumb, title, actions) {
     return '<div class="page-bar"><div class="titles"><div class="crumb">' + crumb + '</div><h1>' + esc(title) + '</h1></div>' +
@@ -402,15 +440,20 @@
     var inprog = ts.filter(function (t) { return t.status === 'In Progress'; }).length;
     var resolved = ts.filter(function (t) { return t.status === 'Resolved' || t.status === 'Closed'; }).length;
 
-    // SLA breach count
-    var breached = ts.filter(function (t) { return slaStatus(t) === 'breached'; }).length;
+    // FR-32: SLA Compliance % — resolved before SLA / total resolved
+    var resolvedWithSla = ts.filter(function (t) { return (t.status === 'Resolved' || t.status === 'Closed') && t.slaDueDate; });
+    var resolvedOnTime = resolvedWithSla.filter(function (t) {
+      var resolveTime = new Date(t.resolvedAt || t.closedAt).getTime();
+      return resolveTime <= new Date(t.slaDueDate).getTime();
+    }).length;
+    var slaCompliancePct = resolvedWithSla.length ? Math.round(resolvedOnTime / resolvedWithSla.length * 100) : 100;
 
     var kpis = [
       { l: 'Open Tickets', v: open, c: '#0572ce' },
       { l: 'Unassigned', v: unassigned, c: '#f97316' },
       { l: 'In Progress', v: inprog, c: '#eab308' },
       { l: 'Resolved / Closed', v: resolved, c: '#22c55e' },
-      { l: 'SLA Breached', v: breached, c: '#b91c1c' }
+      { l: 'SLA Compliance %', v: slaCompliancePct + '%', c: slaCompliancePct >= 80 ? '#22c55e' : '#b91c1c' }
     ].map(function (k) {
       return '<div class="stat"><span class="label">' + k.l + '</span><span class="value">' + k.v + '</span>' +
         '<div class="bar" style="background:' + k.c + ';"></div></div>';
@@ -427,15 +470,23 @@
     }).join('');
 
     // severity breakdown (instead of old "priority" breakdown)
-    var sevs = DB.severities || ['Critical', 'Major', 'Minor', 'Cosmetic'];
+    var sevs = DB.severities || ['Critical', 'Major', 'Minor', 'Low'];
     var svcount = {}; sevs.forEach(function (s) { svcount[s] = 0; });
     ts.forEach(function (t) { if (t.severity) svcount[t.severity]++; });
     var stot = ts.length || 1;
-    var svcolors = { 'Critical': '#b91c1c', 'Major': '#c2410c', 'Minor': '#0369a1', 'Cosmetic': '#64748b' };
+    var svcolors = { 'Critical': '#b91c1c', 'Major': '#c2410c', 'Minor': '#0369a1', 'Low': '#64748b' };
     var svlegend = sevs.map(function (s) {
       return '<div class="li"><span class="sw" style="background:' + svcolors[s] + ';"></span> ' + s +
         ' <b style="margin-left:auto;">' + svcount[s] + ' (' + Math.round(svcount[s] / stot * 100) + '%)</b></div>';
     }).join('');
+
+    // FR-30: Ticket type breakdown
+    var incidentCount = ts.filter(function (t) { return t.ticketType === 'INCIDENT'; }).length;
+    var srCount = ts.filter(function (t) { return t.ticketType === 'SERVICE_REQUEST'; }).length;
+    var typeBreakdown = '<div class="legend" style="flex-direction:column;gap:10px;">' +
+      '<div class="li"><span class="sw" style="background:#dc2626;"></span> Incidents <b style="margin-left:auto;">' + incidentCount + '</b></div>' +
+      '<div class="li"><span class="sw" style="background:#2563eb;"></span> Service Requests <b style="margin-left:auto;">' + srCount + '</b></div>' +
+      '</div>';
 
     // FR-28: Average resolution time
     var resolvedTickets = ts.filter(function (t) { return t.resolvedAt; });
@@ -492,9 +543,10 @@
 
     var html = pageBar('Overview / Dashboard', 'Dashboard', '') +
       '<div class="content"><div class="grid cols-5">' + kpis + '</div>' +
-      '<div class="grid cols-2" style="margin-top:16px;">' +
+      '<div class="grid cols-3" style="margin-top:16px;">' +
         '<div class="card"><div class="card-hd">Tickets by Status</div><div class="card-bd"><div class="barchart">' + bars + '</div></div></div>' +
         '<div class="card"><div class="card-hd">Tickets by Severity</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + svlegend + '</div></div></div>' +
+        '<div class="card"><div class="card-hd">Tickets by Type <span class="sub">FR-30</span></div><div class="card-bd">' + typeBreakdown + '</div></div>' +
       '</div>' + companyCard + analyticsCard + '</div>';
     renderShell(u, 'dashboard', html, tenantBanner(u));
   }
@@ -534,6 +586,7 @@
       return '<tr>' +
         '<td><a class="ref" href="05-ticket-detail.html?id=' + t.id + '">' + t.ref + '</a></td>' +
         '<td>' + esc(t.subject) + '</td>' +
+        '<td>' + typeBadge(t.ticketType) + '</td>' +
         (showCompany ? '<td>' + esc(company(t.companyId).name) + '</td>' : '') +
         '<td>' + sevBadge(t.severity) + '</td>' +
         '<td>' + prioBadge(t.priority) + '</td>' +
@@ -544,7 +597,7 @@
         '</tr>';
     }).join('');
     if (!rows) {
-      var colSpan = showCompany ? 9 : 8;
+      var colSpan = showCompany ? 10 : 9;
       var emptyMsg = { mine: 'Nothing is assigned to you right now — check <b>Unassigned</b> to pick up work.',
         unassigned: 'No unassigned tickets in your projects. The queue is clear. &#127881;',
         open: 'No open tickets — you\u2019re all caught up. &#127881;', all: 'No tickets visible to you.' }[f] || 'No tickets visible to you.';
@@ -556,7 +609,7 @@
       '<div class="toolbar">' + chips + projTag +
       '<div class="search">&#128270; <input id="q" placeholder="Search reference or keyword\u2026" oninput="sd.filterQueue()"></div>' +
       '<span class="muted" style="font-size:12.5px;margin-left:auto;" id="qcount">' + ts.length + ' results</span></div>' +
-      '<table class="t" id="qtable"><thead><tr><th>Ref</th><th>Subject</th>' + (showCompany ? '<th>Company</th>' : '') +
+      '<table class="t" id="qtable"><thead><tr><th>Ref</th><th>Subject</th><th>Type</th>' + (showCompany ? '<th>Company</th>' : '') +
       '<th>Severity</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Age</th><th>SLA</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     renderShell(u, 'queue', html, tenantBanner(u));
   }
@@ -568,6 +621,8 @@
     if (!canSee(u, t)) { renderShell(u, 'queue', notFound('&#128274; You don\u2019t have access to this ticket. (Tenant isolation in action.)'), ''); return; }
 
     var trs = transitions(t, u).map(function (a) {
+      if (a.action === 'resolve') return '<button class="btn ' + a.cls + '" onclick="sd.showResolve(\'' + t.id + '\')">' + a.icon + ' ' + a.label + '</button>';
+      if (a.action === 'close') return '<button class="btn ' + a.cls + '" onclick="sd.showClose(\'' + t.id + '\')">' + a.icon + ' ' + a.label + '</button>';
       return '<button class="btn ' + a.cls + '" onclick="sd.changeStatus(\'' + t.id + '\',\'' + a.to + '\')">' + a.icon + ' ' + a.label + '</button>';
     }).join('');
 
@@ -615,7 +670,7 @@
       }).join('');
 
     var cu = user(t.createdBy) || { name: '?' };
-    var sla = slaTarget(t.severity);
+    var sla = slaTarget(t.companyId, t.severity);
     var slaInfo = sla ? 'SLA: ' + sla.resolutionDays + 'd resolution' : '';
     var actions = assignBtn + selfAssignBtn + escalateBtn + prioBtn + trs +
       '<a class="btn btn-primary" href="08-add-comment.html?id=' + t.id + '">&#128172; Comment</a>';
@@ -631,7 +686,7 @@
     var main =
       pageBar('<a href="04-ticket-list.html">Queue</a> / ' + t.ref, t.subject, actions) +
       '<div class="content" style="display:grid;grid-template-columns:1fr 300px;gap:16px;">' +
-        '<div><div class="card"><div class="card-hd">' + t.ref + ' ' + statusBadge(t.status) + ' ' + sevBadge(t.severity) + ' ' + prioBadge(t.priority) + ' ' + slaBadge(t) + '</div>' +
+        '<div><div class="card"><div class="card-hd">' + t.ref + ' ' + typeBadge(t.ticketType) + ' ' + statusBadge(t.status) + ' ' + sevBadge(t.severity) + ' ' + prioBadge(t.priority) + ' ' + slaBadge(t) + '</div>' +
           '<div class="card-bd"><p style="margin-top:0;">' + esc(t.description) + '</p>' +
           inlineAttachHtml(ticketAttachments(t.id).filter(function (a) { return !a.commentId; })) +
           '<div class="grid cols-4" style="gap:8px;margin-top:8px;">' +
@@ -658,12 +713,18 @@
           })() + '</div>' +
         '<div><div class="card"><div class="card-hd">Properties</div><div class="card-bd form-grid">' +
             '<div class="field"><label>Status</label><input value="' + esc(t.status) + '" disabled></div>' +
+            '<div class="field"><label>Ticket Type</label><div>' + typeBadge(t.ticketType) + '</div></div>' +
             '<div class="field"><label>Severity</label><div>' + sevBadge(t.severity) + '</div></div>' +
             '<div class="field"><label>Priority</label><div>' + prioBadge(t.priority) + '</div></div>' +
             '<div class="field"><label>Assignee</label><input value="' + esc(t.assignedTo ? user(t.assignedTo).name : 'Unassigned') + '" disabled></div>' +
             '<div class="field"><label>Company</label><input value="' + esc(company(t.companyId).name) + '" disabled></div>' +
+            '<div class="field"><label>Department</label><input value="' + esc(department(t.departmentId).name || '—') + '" disabled></div>' +
             '<div class="field"><label>SLA Due</label><input value="' + (t.slaDueDate ? new Date(t.slaDueDate).toLocaleDateString() : '—') + '" disabled></div>' +
             '<div class="field"><label>' + slaInfo + '</label><div>' + slaBadge(t) + '</div></div>' +
+            (t.firstResponseAt ? '<div class="field"><label>First Response</label><input value="' + timeAgo(t.firstResponseAt) + '" disabled></div>' : '') +
+            (t.reopenCount > 0 ? '<div class="field"><label>Reopen Count</label><input value="' + t.reopenCount + '" disabled></div>' : '') +
+            ((t.status === 'Resolved' || t.status === 'Closed') && t.resolutionCode ? '<div class="field"><label>Resolution Code</label><input value="' + esc(t.resolutionCode) + '" disabled></div>' +
+              '<div class="field"><label>Resolution Summary</label><div style="font-size:13px;">' + esc(t.resolutionSummary || '') + '</div></div>' : '') +
             csatSection +
           '</div></div>' +
           '<div class="card" style="margin-top:16px;"><div class="card-hd">Activity History</div>' +
@@ -698,29 +759,30 @@
     if (!canCreate(u)) { renderShell(u, 'queue', notFound('Only client users can raise tickets.'), ''); return; }
     pendingFiles = [];
     var cats = DB.categories.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
-    // Client sets both severity AND priority at creation
-    var sevs = (DB.severities || ['Critical', 'Major', 'Minor', 'Cosmetic']).map(function (s) {
+    var sevs = (DB.severities || ['Critical', 'Major', 'Minor', 'Low']).map(function (s) {
       return '<option' + (s === 'Minor' ? ' selected' : '') + '>' + s + '</option>';
     }).join('');
-    var prios = '<option value="">— Select —</option>' + (DB.priorities || ['P1', 'P2', 'P3', 'P4']).map(function (p) {
-      return '<option>' + p + '</option>';
+    // FR-30: Ticket type selector
+    var typeOpts = (DB.ticketTypes || ['INCIDENT', 'SERVICE_REQUEST']).map(function (t) {
+      return '<option value="' + t + '"' + (t === 'INCIDENT' ? ' selected' : '') + '>' + (t === 'SERVICE_REQUEST' ? 'Service Request' : 'Incident') + '</option>';
     }).join('');
-    // Decision J: agents mapped to the client's company
+    // Decision J: agents mapped to the client's company (L1 only for Client User)
     var agentPool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, u.companyId); });
     var agentOpts = '<option value="">— Unassigned —</option>' + agentPool.map(function (a) {
       var load = DB.tickets.filter(function (x) { return x.assignedTo === a.id && x.status !== 'Closed'; }).length;
-      return '<option value="' + a.id + '">' + esc(a.name) + ' \u00b7 ' + load + ' open</option>';
+      return '<option value="' + a.id + '">' + esc(a.name) + (a.tier ? ' [' + a.tier + ']' : '') + ' \u00b7 ' + load + ' open</option>';
     }).join('');
+    var dept = department(u.departmentId);
     var modal = '<div class="modal lg"><div class="m-hd"><h2>Raise a Ticket</h2><span class="x" onclick="location.href=\'04-ticket-list.html\'">&#10005;</span></div>' +
-      '<div class="m-bd"><div class="tenant-banner" style="border-radius:4px;margin-bottom:16px;">&#128274; Filed under <b>' + esc(company(u.companyId).name) + '</b> automatically (your company).</div>' +
+      '<div class="m-bd"><div class="tenant-banner" style="border-radius:4px;margin-bottom:16px;">&#128274; Filed under <b>' + esc(company(u.companyId).name) + '</b>' + (dept.name ? ' / <b>' + esc(dept.name) + '</b>' : '') + ' automatically.</div>' +
       '<div class="form-grid cols-2">' +
+        '<div class="field full"><label>Ticket Type <span class="req">*</span></label><select id="ticketType">' + typeOpts + '</select>' +
+          '<span class="hint">Incident = something is broken. Service Request = a standard request.</span></div>' +
         '<div class="field full"><label>Subject <span class="req">*</span></label><input id="subject" placeholder="Short summary"></div>' +
         '<div class="field full"><label>Description <span class="req">*</span></label><textarea id="desc" placeholder="Describe the issue\u2026"></textarea></div>' +
-        '<div class="field"><label>Category</label><select id="cat">' + cats + '</select></div>' +
+        '<div class="field"><label>Category <span class="req">*</span></label><select id="cat">' + cats + '</select></div>' +
         '<div class="field"><label>Severity <span class="req">*</span></label><select id="sev">' + sevs + '</select>' +
-          '<span class="hint">Business impact — how badly does this affect your work?</span></div>' +
-        '<div class="field"><label>Priority</label><select id="prio">' + prios + '</select>' +
-          '<span class="hint">How urgently should this be handled?</span></div>' +
+          '<span class="hint">Critical = Complete outage affecting all users. Major = Significant impact, workaround possible. Minor = Limited impact. Low = Cosmetic or nice-to-have.</span></div>' +
         '<div class="field"><label>Assign to</label><select id="createAgent">' + agentOpts + '</select>' +
           '<span class="hint">Pick a support agent (optional).</span></div>' +
         attachZoneHtml() +
@@ -788,12 +850,15 @@
   function renderUsers(u) {
     if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
     var rows = DB.users.map(function (x) {
+      var dept = department(x.departmentId);
       return '<tr><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.email) + '</td><td><span class="role-pill">' + esc(x.role) + '</span></td>' +
-        '<td>' + esc(company(x.companyId).name) + '</td><td><span class="tag-active">&#9679; Active</span></td></tr>';
+        '<td>' + esc(company(x.companyId).name) + '</td><td>' + (x.tier || '<span class="muted">—</span>') + '</td>' +
+        '<td>' + (dept.name ? esc(dept.name) : '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="tag-active">&#9679; Active</span></td></tr>';
     }).join('');
     var html = pageBar('Administration / Users', 'Users', '') +
-      '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Company</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 — APEX Interactive Grid. FR-6: role + company set here drive login\u2019s app items.</p></div>';
+      '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Company</th><th>Tier</th><th>Dept</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 — APEX Interactive Grid. FR-6: role + company + tier + department set here drive login\u2019s app items.</p></div>';
     renderShell(u, 'users', html, tenantBanner(u));
   }
   function renderCategories(u) {
@@ -820,6 +885,32 @@
       '</div></div>';
     renderShell(u, 'categories', html, tenantBanner(u));
   }
+  /* ---------- page: SLA TARGETS (Page 13) ---------- */
+  function renderSlaTargets(u) {
+    if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
+    // Group SLA targets by company
+    var byCompany = {};
+    (DB.slaTargets || []).forEach(function (s) {
+      if (!byCompany[s.companyId]) byCompany[s.companyId] = [];
+      byCompany[s.companyId].push(s);
+    });
+    var companyIds = Object.keys(byCompany);
+    var tables = companyIds.map(function (cid) {
+      var c = company(cid);
+      var rows = byCompany[cid].map(function (s) {
+        return '<tr><td>' + sevBadge(s.severity) + '</td><td>' + s.responseHours + 'h</td><td>' + s.resolutionDays + 'd</td><td>' + (s.escalationPct || 80) + '%</td></tr>';
+      }).join('');
+      return '<div class="card" style="margin-bottom:16px;"><div class="card-hd">' + esc(c.name || cid) + '</div>' +
+        '<table class="t"><thead><tr><th>Severity</th><th>Response</th><th>Resolution</th><th>Escalation %</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }).join('');
+    var html = pageBar('Administration / SLA Targets', 'SLA Targets', '') +
+      '<div class="content">' +
+      '<p class="muted" style="margin-top:0;">Per-company SLA targets (FR-23). Vendor-managed. SLA due date is stamped at ticket creation. Auto-escalation triggers at the escalation % threshold (FR-35).</p>' +
+      tables +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 13 — APEX Interactive Grid. System Admin only.</p></div>';
+    renderShell(u, 'sla', html, tenantBanner(u));
+  }
+
   function renderProfile(u) {
     var html = pageBar('Account / Profile', 'My Profile', '') +
       '<div class="content" style="max-width:720px;"><div class="card"><div class="card-hd">Personal details</div><div class="card-bd">' +
@@ -860,22 +951,23 @@
       var desc = document.getElementById('desc').value.trim();
       if (!subject || !desc) { alert('Subject and description are required.'); return; }
       var severity = document.getElementById('sev').value;
-      var sla = slaTarget(severity);
+      var ticketType = document.getElementById('ticketType').value;
+      var sla = slaTarget(u.companyId, severity);
       var slaDue = null;
       if (sla) {
         var d = new Date();
         d.setDate(d.getDate() + sla.resolutionDays);
         slaDue = d.toISOString();
       }
-      var priority = document.getElementById('prio').value || null;
       var agentId = document.getElementById('createAgent').value || null;
       var r = nextRef();
       var initStatus = agentId ? 'Assigned' : 'New';
-      var t = { id: 't' + r.n, ref: r.ref, companyId: u.companyId, subject: subject, description: desc,
-        categoryId: document.getElementById('cat').value, severity: severity, priority: priority,
-        status: initStatus, createdBy: u.id, assignedTo: agentId,
+      var t = { id: 't' + r.n, ref: r.ref, companyId: u.companyId, departmentId: u.departmentId, subject: subject, description: desc,
+        categoryId: document.getElementById('cat').value, severity: severity, priority: null,
+        status: initStatus, ticketType: ticketType, createdBy: u.id, assignedTo: agentId,
         createdAt: nowIso(), updatedAt: nowIso(), resolvedAt: null, closedAt: null,
-        slaDueDate: slaDue, csatScore: null };
+        slaDueDate: slaDue, csatScore: null, firstResponseAt: null,
+        resolutionCode: null, resolutionSummary: null, reopenCount: 0 };
       DB.tickets.push(t);
       pushHistory(t.id, u.id, 'STATUS_CHANGE', '', initStatus);
       if (agentId) pushHistory(t.id, u.id, 'ASSIGN', '', user(agentId).name);
@@ -926,8 +1018,12 @@
       var internal = internalEl ? internalEl.classList.contains('on') : false;
       var cId = 'c' + NOW();
       DB.comments.push({ id: cId, ticketId: id, userId: u.id, text: text, isInternal: internal, createdAt: nowIso() });
-      // FR-25: save pending attachments on the comment
+      // FR-31: First response tracking — stamp on first agent/admin comment
       var t = DB.tickets.find(function (x) { return x.id === id; });
+      if (!t.firstResponseAt && (isAgent(u) || isAdmin(u))) {
+        t.firstResponseAt = nowIso();
+      }
+      // FR-25: save pending attachments on the comment
       pendingFiles.forEach(function (f) {
         DB.attachments.push({ id: 'a' + NOW() + Math.floor(Math.random() * 1000), ticketId: id, companyId: t.companyId, commentId: cId, fileName: f.name, mimeType: f.type, fileSize: f.size, uploadedBy: u.id, uploadedAt: nowIso() });
       });
@@ -940,7 +1036,21 @@
 
     changeStatus: function (id, to) {
       var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
-      var old = t.status; t.status = to; t.updatedAt = nowIso();
+      // FR-37: Triage gate — priority required before moving to In Progress
+      if (to === 'In Progress' && !t.priority) {
+        alert('Priority must be set before starting work. Please set priority first (triage gate — FR-37).');
+        return;
+      }
+      var old = t.status;
+      // Reopen handling: Resolved → In Progress increments reopenCount
+      if (to === 'In Progress' && old === 'Resolved') {
+        t.reopenCount = (t.reopenCount || 0) + 1;
+      }
+      t.status = to; t.updatedAt = nowIso();
+      // First response tracking (FR-31): stamp on first move to In Progress
+      if (to === 'In Progress' && !t.firstResponseAt && (isAgent(u) || isAdmin(u))) {
+        t.firstResponseAt = nowIso();
+      }
       if (to === 'Resolved') t.resolvedAt = nowIso();
       if (to === 'Closed') t.closedAt = nowIso();
       pushHistory(id, u.id, 'STATUS_CHANGE', old, to);
@@ -954,9 +1064,18 @@
     showEscalate: function (id) {
       var t = DB.tickets.find(function (x) { return x.id === id; });
       var u = currentUser();
-      var pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && x.id !== t.assignedTo && agentCovers(x.id, t.companyId); });
+      // FR-26: tier-filtered — show agents at same or higher tier than current assignee
+      var TIER_ORDER = { 'L1': 1, 'L2': 2, 'L3': 3, 'L4': 4 };
+      var currentAssignee = t.assignedTo ? user(t.assignedTo) : null;
+      var currentTierLevel = currentAssignee && currentAssignee.tier ? (TIER_ORDER[currentAssignee.tier] || 0) : 0;
+      var pool = DB.users.filter(function (x) {
+        if (x.role !== 'Support Agent' || x.id === t.assignedTo) return false;
+        if (!agentCovers(x.id, t.companyId)) return false;
+        var agentTier = x.tier ? (TIER_ORDER[x.tier] || 0) : 0;
+        return agentTier >= currentTierLevel;
+      });
       if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && x.id !== t.assignedTo; });
-      var agents = pool.map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
+      var agents = pool.map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + (a.tier ? ' [' + a.tier + ']' : '') + '</option>'; }).join('');
       var prios = (DB.priorities || ['P1','P2','P3','P4']).map(function (p) {
         var sel = t.priority && p < t.priority ? ' selected' : (p === 'P1' ? ' selected' : '');
         return '<option' + sel + '>' + p + '</option>';
@@ -1016,6 +1135,85 @@
       pushHistory(id, u.id, 'PRIORITY_CHANGE', oldPrio, newPrio);
       save();
       sessionStorage.setItem('flash', 'Priority set to ' + newPrio + '.');
+      sd.closeModal();
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // FR-36: Resolve dialog — requires resolution code + summary
+    showResolve: function (id) {
+      var t = DB.tickets.find(function (x) { return x.id === id; });
+      var codes = (DB.resolutionCodes || ['FIXED', 'WORKAROUND', 'KNOWN_ERROR', 'CANNOT_REPRODUCE', 'DUPLICATE', 'USER_EDUCATION', 'NOT_AN_INCIDENT']).map(function (c) {
+        return '<option value="' + c + '">' + c.replace(/_/g, ' ') + '</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>&#10003; Resolve &middot; ' + t.ref + '</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><p class="muted mt-0">Mark this ticket as resolved. Resolution details are required (FR-36).</p>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label>Resolution Code <span class="req">*</span></label><select id="resCode">' + codes + '</select></div>' +
+          '<div class="field"><label>Resolution Summary <span class="req">*</span></label><textarea id="resSummary" placeholder="Describe what was done to resolve this\u2026"></textarea></div>' +
+          '<div class="field"><label>Comment (optional)</label><textarea id="resComment" placeholder="Optional closing comment\u2026"></textarea></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-hot" onclick="sd.doResolve(\'' + t.id + '\')">&#10003; Resolve</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.id = 'resolveModal';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doResolve: function (id) {
+      var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
+      var code = document.getElementById('resCode').value;
+      var summary = document.getElementById('resSummary').value.trim();
+      if (!summary) { alert('Resolution summary is required.'); return; }
+      var comment = document.getElementById('resComment').value.trim();
+      var old = t.status;
+      t.status = 'Resolved';
+      t.resolutionCode = code;
+      t.resolutionSummary = summary;
+      t.resolvedAt = nowIso();
+      t.updatedAt = nowIso();
+      pushHistory(id, u.id, 'STATUS_CHANGE', old, 'Resolved');
+      if (comment) {
+        DB.comments.push({ id: 'c' + NOW(), ticketId: id, userId: u.id, text: comment, isInternal: false, createdAt: nowIso() });
+      }
+      save();
+      sessionStorage.setItem('flash', '&#10003; Resolved (' + code.replace(/_/g, ' ') + ').');
+      sd.closeModal();
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // FR-27 + FR-11: Close dialog with optional CSAT
+    showClose: function (id) {
+      var t = DB.tickets.find(function (x) { return x.id === id; });
+      var u = currentUser();
+      var csatHtml = isClient(u) ? '<div class="field"><label>How was the support? (optional)</label><div>' + csatStars(null, true) + '</div></div>' : '';
+      var modal = '<div class="modal" style="max-width:440px;"><div class="m-hd"><h2>&#10003; Close &middot; ' + t.ref + '</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><p class="muted mt-0">Confirm you want to close this ticket. Once closed, it cannot be reopened.</p>' +
+        '<div class="form-grid">' + csatHtml + '</div></div>' +
+        '<div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doClose(\'' + t.id + '\')">&#10003; Close Ticket</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.id = 'closeModal';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doClose: function (id) {
+      var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
+      // Check if user set CSAT via stars in the modal
+      var stars = document.querySelectorAll('#closeModal .star.filled');
+      if (stars.length) {
+        t.csatScore = stars.length;
+        pushHistory(id, u.id, 'CSAT', '', stars.length + '/5 stars');
+      }
+      var old = t.status;
+      t.status = 'Closed';
+      t.closedAt = nowIso();
+      t.updatedAt = nowIso();
+      pushHistory(id, u.id, 'STATUS_CHANGE', old, 'Closed');
+      save();
+      sessionStorage.setItem('flash', '&#10003; Ticket closed.' + (stars.length ? ' Thank you for your feedback!' : ''));
       sd.closeModal();
       renderDetail(u);
       var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
@@ -1087,6 +1285,7 @@
       case 'companies': renderCompanies(u); break;
       case 'users': renderUsers(u); break;
       case 'categories': renderCategories(u); break;
+      case 'sla-targets': renderSlaTargets(u); break;
       case 'profile': renderProfile(u); break;
       default: renderHome(u);
     }

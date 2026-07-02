@@ -619,23 +619,24 @@
             '<div><div class="muted" style="font-size:11.5px;">Raised by</div><div>' + esc(cu.name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Company</div><div>' + esc(company(t.companyId).name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Age</div><div>' + ageDays(t.createdAt) + '</div></div>' +
-          '</div></div></div>' +
-          '<div class="card" style="margin-top:16px;"><div class="card-hd">Conversation' +
-            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">&#128172; Add Comment</a></div>' +
-            '<div class="card-bd">' + cHtml + '</div></div>' +
+          '</div>' +
           (function () {
             var allFiles = ticketAttachments(t.id);
             if (!allFiles.length) return '';
-            return '<div class="card attach-section"><div class="card-hd">&#128206; Attachments <span class="sub">' + allFiles.length + ' file' + (allFiles.length > 1 ? 's' : '') + '</span></div>' +
-              '<div class="card-bd"><div class="attach-grid">' + allFiles.map(function (a) {
+            return '<div style="margin-top:14px;border-top:1px solid var(--c-border-lt);padding-top:12px;">' +
+              '<div style="font-weight:600;font-size:13px;margin-bottom:8px;">&#128206; Attachments <span class="muted" style="font-weight:400;font-size:12px;">' + allFiles.length + ' file' + (allFiles.length > 1 ? 's' : '') + '</span></div>' +
+              '<div class="attach-grid">' + allFiles.map(function (a) {
                 var up = user(a.uploadedBy) || { name: '?' };
                 var context = a.commentId ? 'on comment' : 'on ticket';
                 return '<div class="attach-row"><span class="ar-icon">' + fileIcon(a.mimeType) + '</span>' +
                   '<div class="ar-info"><div class="ar-name">' + esc(a.fileName) + '</div>' +
                   '<div class="ar-meta">' + fileSize(a.fileSize) + ' &middot; ' + esc(up.name) + ' &middot; ' + timeAgo(a.uploadedAt) + ' &middot; ' + context + '</div></div>' +
                   '<span class="ar-dl">&#8595; Download</span></div>';
-              }).join('') + '</div></div></div>';
-          })() + '</div>' +
+              }).join('') + '</div></div>';
+          })() + '</div></div>' +
+          '<div class="card" style="margin-top:16px;"><div class="card-hd">Conversation' +
+            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">&#128172; Add Comment</a></div>' +
+            '<div class="card-bd">' + cHtml + '</div></div></div>' +
         '<div><div class="card"><div class="card-hd">Properties</div><div class="card-bd form-grid">' +
             '<div class="field"><label>Status</label><input value="' + esc(t.status) + '" disabled></div>' +
             '<div class="field"><label>Severity</label><div>' + sevBadge(t.severity) + '</div></div>' +
@@ -678,9 +679,18 @@
     if (!canCreate(u)) { renderShell(u, 'queue', notFound('Only client users can raise tickets.'), ''); return; }
     pendingFiles = [];
     var cats = DB.categories.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
-    // FR-7 / Decision K: client sets SEVERITY at creation (not priority)
+    // Client sets both severity AND priority at creation
     var sevs = (DB.severities || ['Critical', 'Major', 'Minor', 'Cosmetic']).map(function (s) {
       return '<option' + (s === 'Minor' ? ' selected' : '') + '>' + s + '</option>';
+    }).join('');
+    var prios = '<option value="">— Select —</option>' + (DB.priorities || ['P1', 'P2', 'P3', 'P4']).map(function (p) {
+      return '<option>' + p + '</option>';
+    }).join('');
+    // Decision J: agents mapped to the client's company
+    var agentPool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, u.companyId); });
+    var agentOpts = '<option value="">— Unassigned —</option>' + agentPool.map(function (a) {
+      var load = DB.tickets.filter(function (x) { return x.assignedTo === a.id && x.status !== 'Closed'; }).length;
+      return '<option value="' + a.id + '">' + esc(a.name) + ' \u00b7 ' + load + ' open</option>';
     }).join('');
     var modal = '<div class="modal lg"><div class="m-hd"><h2>Raise a Ticket</h2><span class="x" onclick="location.href=\'04-ticket-list.html\'">&#10005;</span></div>' +
       '<div class="m-bd"><div class="tenant-banner" style="border-radius:4px;margin-bottom:16px;">&#128274; Filed under <b>' + esc(company(u.companyId).name) + '</b> automatically (your company).</div>' +
@@ -690,6 +700,10 @@
         '<div class="field"><label>Category</label><select id="cat">' + cats + '</select></div>' +
         '<div class="field"><label>Severity <span class="req">*</span></label><select id="sev">' + sevs + '</select>' +
           '<span class="hint">Business impact — how badly does this affect your work?</span></div>' +
+        '<div class="field"><label>Priority</label><select id="prio">' + prios + '</select>' +
+          '<span class="hint">How urgently should this be handled?</span></div>' +
+        '<div class="field"><label>Assign to</label><select id="createAgent">' + agentOpts + '</select>' +
+          '<span class="hint">Pick a support agent (optional).</span></div>' +
         attachZoneHtml() +
       '</div></div><div class="m-ft"><a class="btn" href="04-ticket-list.html">Cancel</a>' +
       '<button class="btn btn-primary" onclick="sd.createTicket()">&#10133; Submit Ticket</button></div></div>';
@@ -834,14 +848,18 @@
         d.setDate(d.getDate() + sla.resolutionDays);
         slaDue = d.toISOString();
       }
+      var priority = document.getElementById('prio').value || null;
+      var agentId = document.getElementById('createAgent').value || null;
       var r = nextRef();
+      var initStatus = agentId ? 'Assigned' : 'New';
       var t = { id: 't' + r.n, ref: r.ref, companyId: u.companyId, subject: subject, description: desc,
-        categoryId: document.getElementById('cat').value, severity: severity, priority: null,
-        status: 'New', createdBy: u.id, assignedTo: null,
+        categoryId: document.getElementById('cat').value, severity: severity, priority: priority,
+        status: initStatus, createdBy: u.id, assignedTo: agentId,
         createdAt: nowIso(), updatedAt: nowIso(), resolvedAt: null, closedAt: null,
         slaDueDate: slaDue, csatScore: null };
       DB.tickets.push(t);
-      pushHistory(t.id, u.id, 'STATUS_CHANGE', '', 'New');
+      pushHistory(t.id, u.id, 'STATUS_CHANGE', '', initStatus);
+      if (agentId) pushHistory(t.id, u.id, 'ASSIGN', '', user(agentId).name);
       // FR-25: save pending attachments
       pendingFiles.forEach(function (f) {
         DB.attachments.push({ id: 'a' + NOW() + Math.floor(Math.random() * 1000), ticketId: t.id, companyId: u.companyId, commentId: null, fileName: f.name, mimeType: f.type, fileSize: f.size, uploadedBy: u.id, uploadedAt: nowIso() });

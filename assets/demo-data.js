@@ -103,5 +103,15 @@ window.DEMO_SEED = {
     { id:'h8', ticketId:'t42', userId:'u1', action:'PRIORITY_CHANGE', oldValue:'',         newValue:'P3',          createdAt:'2026-06-30T01:32:00' }
   ],
 
+  // FR-25: File/screenshot attachments on tickets and comments (COULD — tenant-scoped).
+  // commentId = null means ticket-level; non-null = attached to that comment.
+  attachments: [
+    { id:'a1', ticketId:'t42', companyId:'C1', commentId:null,  fileName:'vpn-error-log.txt',      mimeType:'text/plain',       fileSize:4200,   uploadedBy:'u4', uploadedAt:'2026-06-30T01:15:00' },
+    { id:'a2', ticketId:'t42', companyId:'C1', commentId:null,  fileName:'vpn-disconnect-screenshot.png', mimeType:'image/png', fileSize:184000, uploadedBy:'u4', uploadedAt:'2026-06-30T01:15:00' },
+    { id:'a3', ticketId:'t42', companyId:'C1', commentId:'c3',  fileName:'concentrator-mtu-log.pdf', mimeType:'application/pdf', fileSize:62000,  uploadedBy:'u2', uploadedAt:'2026-06-30T01:42:00' },
+    { id:'a4', ticketId:'t48', companyId:'C3', commentId:null,  fileName:'invoice-wrong-currency.png', mimeType:'image/png',    fileSize:210000, uploadedBy:'u8', uploadedAt:'2026-06-29T15:12:00' },
+    { id:'a5', ticketId:'t19', companyId:'C1', commentId:null,  fileName:'shared-drive-empty-folder.png', mimeType:'image/png', fileSize:95000,  uploadedBy:'u5', uploadedAt:'2026-06-29T18:05:00' }
+  ],
+
   seq: 51 // last ticket number used; next created ticket = 52
 };

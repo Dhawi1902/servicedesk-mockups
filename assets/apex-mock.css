@@ -506,6 +506,26 @@ hr.sep { border:0; border-top:1px solid var(--c-border-lt); margin:18px 0; }
 }
 .file-chip .fc-icon { font-size: 13px; }
 
+/* Inline image previews */
+.inline-previews { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; margin-bottom: 4px; }
+.img-preview {
+  border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden;
+  max-width: 280px; background: #fff;
+}
+.img-placeholder {
+  height: 120px; background: linear-gradient(135deg, #e8f1fb 0%, #f0f4f8 50%, #e0eaf5 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; font-size: 28px; color: var(--c-primary);
+}
+.img-placeholder span {
+  font-size: 11px; color: var(--c-muted); max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.img-caption {
+  padding: 6px 10px; font-size: 11px; color: var(--c-muted);
+  border-top: 1px solid var(--c-border-lt); background: #f9fafb;
+}
+
 /* Aggregated attachments section on detail page */
 .attach-section { margin-top: 16px; }
 .attach-grid { display: flex; flex-direction: column; gap: 6px; }

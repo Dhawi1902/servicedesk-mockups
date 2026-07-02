@@ -142,6 +142,28 @@
         '<span class="ai-remove" onclick="sd.removePending(' + i + ')">&#10005;</span></div>';
     }).join('');
   }
+  // Render inline previews: images as <img>, non-images as download chips
+  function inlineAttachHtml(files) {
+    if (!files.length) return '';
+    var images = files.filter(function (a) { return a.mimeType && a.mimeType.indexOf('image/') === 0; });
+    var others = files.filter(function (a) { return !a.mimeType || a.mimeType.indexOf('image/') !== 0; });
+    var html = '';
+    if (images.length) {
+      html += '<div class="inline-previews">' + images.map(function (a) {
+        // Simulated: use a placeholder gradient since we don't have real file data
+        return '<div class="img-preview"><div class="img-placeholder">' + fileIcon(a.mimeType) +
+          '<span>' + esc(a.fileName) + '</span></div>' +
+          '<div class="img-caption">' + esc(a.fileName) + ' &middot; ' + fileSize(a.fileSize) + '</div></div>';
+      }).join('') + '</div>';
+    }
+    if (others.length) {
+      html += '<div class="file-chips">' + others.map(function (a) {
+        return '<span class="file-chip"><span class="fc-icon">' + fileIcon(a.mimeType) + '</span>' +
+          esc(a.fileName) + ' <span class="muted" style="font-size:10px;">' + fileSize(a.fileSize) + '</span></span>';
+      }).join('') + '</div>';
+    }
+    return html;
+  }
   function attachZoneHtml() {
     return '<div class="field full"><label>Attachments</label>' +
       '<div class="attach-zone" onclick="document.getElementById(\'file-input\').click()">' +
@@ -576,13 +598,10 @@
     var cHtml = comments.map(function (c) {
       var au = user(c.userId) || { name: '?' };
       var cFiles = commentAttachments(c.id);
-      var chipHtml = cFiles.length ? '<div class="file-chips">' + cFiles.map(function (a) {
-        return '<span class="file-chip"><span class="fc-icon">' + fileIcon(a.mimeType) + '</span>' + esc(a.fileName) + '</span>';
-      }).join('') + '</div>' : '';
       return '<div class="comment ' + (c.isInternal ? 'internal' : '') + '"><div class="av">' + initials(au.name) + '</div>' +
         '<div style="flex:1;"><div class="head"><b>' + esc(au.name) + '</b> &middot; ' + esc(au.role || '') +
         (c.isInternal ? ' &middot; <span class="badge st-progress">&#128274; Internal note</span>' : '') + ' &middot; ' + timeAgo(c.createdAt) + '</div>' +
-        '<div class="body">' + esc(c.text) + '</div>' + chipHtml + '</div></div>';
+        '<div class="body">' + esc(c.text) + '</div>' + inlineAttachHtml(cFiles) + '</div></div>';
     }).join('') || '<div class="muted">No comments yet.</div>';
 
     var hist = DB.history.filter(function (h) { return h.ticketId === t.id; })
@@ -614,6 +633,7 @@
       '<div class="content" style="display:grid;grid-template-columns:1fr 300px;gap:16px;">' +
         '<div><div class="card"><div class="card-hd">' + t.ref + ' ' + statusBadge(t.status) + ' ' + sevBadge(t.severity) + ' ' + prioBadge(t.priority) + ' ' + slaBadge(t) + '</div>' +
           '<div class="card-bd"><p style="margin-top:0;">' + esc(t.description) + '</p>' +
+          inlineAttachHtml(ticketAttachments(t.id).filter(function (a) { return !a.commentId; })) +
           '<div class="grid cols-4" style="gap:8px;margin-top:8px;">' +
             '<div><div class="muted" style="font-size:11.5px;">Category</div><div>' + esc(category(t.categoryId).name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Raised by</div><div>' + esc(cu.name) + '</div></div>' +

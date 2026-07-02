@@ -3,10 +3,21 @@
    Simulated, CLIENT-SIDE only. Session + data live in localStorage.
    NOT real authentication. Demonstrates role-based access, tenant
    isolation, and the ticket lifecycle. Real version is built in APEX.
+
+   Updated to match the latest brief (2026-06-30):
+   - Severity (client-set) vs Priority (support-set) — Decision K / FR-7
+   - SLA per severity with breach indicators — FR-23
+   - CSAT star rating after closure — FR-27
+   - Escalate action (reassign + raise priority) — FR-26
+   - Client can assign from mapped agents — Decision J / FR-10
+   - Agent self-assign from open queue — Decision A / FR-10
+   - Dashboard analytics (avg resolution time, per-agent counts) — FR-28
+   - Ticket age column — FR-15
+   - Auto-acknowledgement email on create — FR-29
    ========================================================================= */
 (function () {
   'use strict';
-  var LS_DATA = 'sd_demo_data_v3', LS_SESSION = 'sd_demo_session_v3';
+  var LS_DATA = 'sd_demo_data_v4', LS_SESSION = 'sd_demo_session_v4';
 
   /* ---------- store ---------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -44,10 +55,57 @@
     var days = Math.floor(d / 86400);
     return days === 1 ? 'yesterday' : days + 'd ago';
   }
+  function ageDays(iso) {
+    var d = (NOW() - new Date(iso).getTime()) / (1000 * 86400);
+    if (d < 1) return '<1d';
+    return Math.floor(d) + 'd';
+  }
+
+  /* ---------- SLA (FR-23) ---------- */
+  function slaTarget(severity) {
+    return (DB.slaTargets || []).find(function (s) { return s.severity === severity; });
+  }
+  function slaStatus(ticket) {
+    if (!ticket.slaDueDate) return null;
+    if (ticket.status === 'Closed') return 'closed';
+    var due = new Date(ticket.slaDueDate).getTime();
+    var now = NOW();
+    var total = due - new Date(ticket.createdAt).getTime();
+    var remaining = due - now;
+    if (remaining <= 0) return 'breached';
+    if (remaining / total <= 0.25) return 'at-risk';
+    return 'on-track';
+  }
+  function slaBadge(ticket) {
+    var s = slaStatus(ticket);
+    if (!s || s === 'closed') return '';
+    var map = { 'on-track': '<span class="sla-badge sla-ok">&#x1F7E2; On track</span>',
+                'at-risk':  '<span class="sla-badge sla-warn">&#x1F7E1; At risk</span>',
+                'breached': '<span class="sla-badge sla-breach">&#x1F534; Breached</span>' };
+    return map[s] || '';
+  }
+
+  /* ---------- badges ---------- */
   var STATUS_CLS = { 'New': 'st-new', 'Assigned': 'st-assigned', 'In Progress': 'st-progress', 'On Hold': 'st-hold', 'Resolved': 'st-resolved', 'Closed': 'st-closed' };
-  var PRIO_CLS = { 'Low': 'pr-low', 'Medium': 'pr-medium', 'High': 'pr-high', 'Critical': 'pr-critical' };
+  var SEV_CLS = { 'Critical': 'sev-critical', 'Major': 'sev-major', 'Minor': 'sev-minor', 'Cosmetic': 'sev-cosmetic' };
+  var PRIO_CLS = { 'P1': 'pr-critical', 'P2': 'pr-high', 'P3': 'pr-medium', 'P4': 'pr-low' };
   function statusBadge(s) { return '<span class="badge ' + (STATUS_CLS[s] || '') + '"><span class="dot"></span>' + esc(s) + '</span>'; }
-  function prioBadge(p) { return '<span class="badge ' + (PRIO_CLS[p] || '') + '">' + esc(p) + '</span>'; }
+  function sevBadge(s) { return s ? '<span class="badge ' + (SEV_CLS[s] || '') + '">' + esc(s) + '</span>' : ''; }
+  function prioBadge(p) { return p ? '<span class="badge ' + (PRIO_CLS[p] || '') + '">' + esc(p) + '</span>' : '<span class="muted">—</span>'; }
+
+  /* ---------- CSAT stars (FR-27) ---------- */
+  function csatStars(score, editable) {
+    if (!editable && !score) return '<span class="muted">—</span>';
+    var html = '<span class="csat-stars' + (editable ? ' editable' : '') + '">';
+    for (var i = 1; i <= 5; i++) {
+      var filled = score && i <= score;
+      html += '<span class="star' + (filled ? ' filled' : '') + '" data-val="' + i + '"' +
+        (editable ? ' onclick="sd.rateCsat(this)"' : '') + '>&#9733;</span>';
+    }
+    html += '</span>';
+    if (score) html += ' <span class="muted">(' + score + '/5)</span>';
+    return html;
+  }
 
   /* ---------- authorization / tenant isolation ---------- */
   function isAdmin(u) { return u.role === 'System Admin'; }
@@ -55,8 +113,6 @@
   function isClientAdmin(u) { return u.role === 'Client Admin'; }
   function isClient(u) { return u.role === 'Client User' || u.role === 'Client Admin'; }
 
-  // Support Agents are scoped to the CLIENT companies (projects) they cover,
-  // so they never see tickets from clients they're not assigned to.
   function agentCompanyIds(u) {
     return (DB.agentCompanies || [])
       .filter(function (m) { return m.userId === u.id; })
@@ -66,37 +122,51 @@
     return (DB.agentCompanies || []).some(function (m) { return m.userId === userId && m.companyId === companyId; });
   }
 
-  // The heart of the demo: who can see which tickets.
   function visibleTickets(u) {
     return DB.tickets.filter(function (t) {
-      if (isAdmin(u)) return true;                                   // everything, all companies
-      if (isAgent(u)) return agentCompanyIds(u).indexOf(t.companyId) >= 0; // only their assigned projects
-      if (isClientAdmin(u)) return t.companyId === u.companyId;      // whole company
-      return t.companyId === u.companyId && t.createdBy === u.id;    // client user: own tickets only
+      if (isAdmin(u)) return true;
+      if (isAgent(u)) return agentCompanyIds(u).indexOf(t.companyId) >= 0;
+      if (isClientAdmin(u)) return t.companyId === u.companyId;
+      return t.companyId === u.companyId && t.createdBy === u.id;
     });
   }
   function canSee(u, t) { return visibleTickets(u).some(function (x) { return x.id === t.id; }); }
   function canCreate(u) { return isClient(u); }
-  function canAssign(u) { return isAdmin(u); } // decision A: admin assigns
+
+  // Decision J + Decision A: who can assign
+  // System Admin: any agent. Client User/Admin: agents mapped to their company.
+  // Agent: self-assign from open queue (handled separately on detail page).
+  function canAssign(u, t) {
+    if (isAdmin(u)) return true;
+    if (isClient(u) && t && t.companyId === u.companyId) return true;
+    return false;
+  }
+  function canSelfAssign(u, t) {
+    return isAgent(u) && t && t.assignedTo == null &&
+      t.status !== 'Closed' && agentCovers(u.id, t.companyId);
+  }
+  function canEscalate(u, t) {
+    return (isAgent(u) || isAdmin(u)) && t && t.status === 'In Progress';
+  }
+  function canSetPriority(u) { return isAdmin(u) || isAgent(u); }
   function canInternalNote(u) { return isAdmin(u) || isAgent(u); }
 
-  // allowed status transitions for this ticket + user
   function transitions(t, u) {
     var out = [];
     var agentOrAdmin = isAdmin(u) || (isAgent(u) && (t.assignedTo === u.id || t.assignedTo == null));
     var clientSide = isAdmin(u) || (isClient(u) && t.companyId === u.companyId);
     switch (t.status) {
       case 'Assigned':
-        if (agentOrAdmin) out.push({ label: 'Start Work', to: 'In Progress', cls: 'btn-primary', icon: '▶' });
+        if (agentOrAdmin) out.push({ label: 'Start Work', to: 'In Progress', cls: 'btn-primary', icon: '&#9654;' });
         break;
       case 'In Progress':
-        if (agentOrAdmin) { out.push({ label: 'Put On Hold', to: 'On Hold', cls: '', icon: '⏸' }); out.push({ label: 'Resolve', to: 'Resolved', cls: 'btn-hot', icon: '✓' }); }
+        if (agentOrAdmin) { out.push({ label: 'Put On Hold', to: 'On Hold', cls: '', icon: '&#9208;' }); out.push({ label: 'Resolve', to: 'Resolved', cls: 'btn-hot', icon: '&#10003;' }); }
         break;
       case 'On Hold':
-        if (agentOrAdmin) out.push({ label: 'Resume', to: 'In Progress', cls: 'btn-primary', icon: '▶' });
+        if (agentOrAdmin) out.push({ label: 'Resume', to: 'In Progress', cls: 'btn-primary', icon: '&#9654;' });
         break;
       case 'Resolved':
-        if (clientSide) { out.push({ label: 'Close', to: 'Closed', cls: 'btn-primary', icon: '✓' }); out.push({ label: 'Reopen', to: 'In Progress', cls: '', icon: '↺' }); }
+        if (clientSide) { out.push({ label: 'Close', to: 'Closed', cls: 'btn-primary', icon: '&#10003;' }); out.push({ label: 'Reopen', to: 'In Progress', cls: '', icon: '&#8634;' }); }
         break;
     }
     return out;
@@ -115,19 +185,18 @@
   function navModel(u) {
     var queueLabel = isClient(u) ? 'My Tickets' : 'Ticket Queue';
     var items = [
-      { key: 'home', label: 'Projects', icon: '📁', href: '02-home.html', section: 'Overview' }
+      { key: 'home', label: 'Projects', icon: '&#128193;', href: '02-home.html', section: 'Overview' }
     ];
-    // Dashboard is an oversight view — relevant to the agent (personal stats)
-    // and the admin (cross-company), not to client users tracking their own tickets.
-    if (isAdmin(u) || isAgent(u)) items.push({ key: 'dashboard', label: 'Dashboard', icon: '📊', href: '03-dashboard.html', section: 'Overview' });
-    items.push({ key: 'queue', label: queueLabel, icon: '🎫', href: '04-ticket-list.html', section: 'Tickets' });
-    if (canCreate(u)) items.push({ key: 'create', label: 'Raise a Ticket', icon: '➕', href: '06-create-ticket.html', section: 'Tickets' });
+    // Dashboard visible to Agent, Admin, and Client Admin (FR-19)
+    if (isAdmin(u) || isAgent(u) || isClientAdmin(u)) items.push({ key: 'dashboard', label: 'Dashboard', icon: '&#128202;', href: '03-dashboard.html', section: 'Overview' });
+    items.push({ key: 'queue', label: queueLabel, icon: '&#127915;', href: '04-ticket-list.html', section: 'Tickets' });
+    if (canCreate(u)) items.push({ key: 'create', label: 'Raise a Ticket', icon: '&#10133;', href: '06-create-ticket.html', section: 'Tickets' });
     if (isAdmin(u)) {
-      items.push({ key: 'companies', label: 'Companies', icon: '🏢', href: '09-companies.html', section: 'Administration' });
-      items.push({ key: 'users', label: 'Users', icon: '👥', href: '10-users.html', section: 'Administration' });
-      items.push({ key: 'categories', label: 'Categories', icon: '🏷️', href: '11-categories.html', section: 'Administration' });
+      items.push({ key: 'companies', label: 'Companies', icon: '&#127970;', href: '09-companies.html', section: 'Administration' });
+      items.push({ key: 'users', label: 'Users', icon: '&#128101;', href: '10-users.html', section: 'Administration' });
+      items.push({ key: 'categories', label: 'Categories', icon: '&#127991;&#65039;', href: '11-categories.html', section: 'Administration' });
     }
-    items.push({ key: 'profile', label: 'My Profile', icon: '👤', href: '12-profile.html', section: 'Account' });
+    items.push({ key: 'profile', label: 'My Profile', icon: '&#128100;', href: '12-profile.html', section: 'Account' });
     return items;
   }
   function renderShell(u, activeKey, mainHtml, bannerHtml) {
@@ -139,9 +208,9 @@
       }).join('');
     }).join('');
     var header =
-      '<div class="brand"><div class="logo">🎫</div> ServiceDesk</div>' +
+      '<div class="brand"><div class="logo">&#127915;</div> ServiceDesk</div>' +
       '<div class="spacer"></div>' +
-      '<div class="hdr-item" title="Reset demo data" onclick="sd.reset()">↺ Reset demo</div>' +
+      '<div class="hdr-item" title="Reset demo data" onclick="sd.reset()">&#8634; Reset demo</div>' +
       '<div class="hdr-item"><span class="role-pill">' + esc(u.role) + '</span></div>' +
       '<div class="hdr-item"><span class="avatar">' + initials(u.name) + '</span> ' + esc(u.name) +
       ' &nbsp;<a href="#" onclick="sd.logout();return false;" style="font-size:12px;">Sign out</a></div>';
@@ -154,27 +223,25 @@
       '</div>' + demoFoot();
   }
   function demoFoot() {
-    return '<div class="demo-foot">🧪 <b>Interactive demo</b> — simulated client-side login (no real auth). ' +
+    return '<div class="demo-foot">&#129514; <b>Interactive demo</b> — simulated client-side login (no real auth). ' +
            'Data persists in your browser. Real auth &amp; tenant isolation are built in Oracle APEX. ' +
            '<a href="#" onclick="sd.reset();return false;">Reset</a></div>';
   }
   function tenantBanner(u) {
-    if (isAdmin(u)) return '<div class="tenant-banner">🌐 <b>System Admin</b> — viewing <b>all companies</b>. Other roles are scoped to their own company.</div>';
+    if (isAdmin(u)) return '<div class="tenant-banner">&#127760; <b>System Admin</b> — viewing <b>all companies</b>. Other roles are scoped to their own company.</div>';
     if (isAgent(u)) {
       var projNames = agentCompanyIds(u).map(function (id) { return company(id).name; });
       var projList = projNames.length ? projNames.join(', ') : 'no projects assigned yet';
-      return '<div class="tenant-banner">🛠️ <b>Support Agent</b> — you only see tickets for <b>your assigned projects</b>: ' + esc(projList) + '. Other clients are hidden.</div>';
+      return '<div class="tenant-banner">&#128736;&#65039; <b>Support Agent</b> — you only see tickets for <b>your assigned projects</b>: ' + esc(projList) + '. Other clients are hidden.</div>';
     }
-    if (isClientAdmin(u)) return '<div class="tenant-banner">🔒 <b>' + esc(company(u.companyId).name) + '</b> only — you see <b>all tickets for your company</b> (never other companies’).</div>';
-    return '<div class="tenant-banner">🔒 <b>' + esc(company(u.companyId).name) + '</b> — you see <b>only your own tickets</b>.</div>';
+    if (isClientAdmin(u)) return '<div class="tenant-banner">&#128274; <b>' + esc(company(u.companyId).name) + '</b> only — you see <b>all tickets for your company</b> (never other companies\u2019).</div>';
+    return '<div class="tenant-banner">&#128274; <b>' + esc(company(u.companyId).name) + '</b> — you see <b>only your own tickets</b>.</div>';
   }
   function pageBar(crumb, title, actions) {
     return '<div class="page-bar"><div class="titles"><div class="crumb">' + crumb + '</div><h1>' + esc(title) + '</h1></div>' +
            '<div class="actions">' + (actions || '') + '</div></div>';
   }
 
-  // Role-based landing: doers go straight to their work list; the System
-  // Admin (whose job is oversight) lands on the dashboard / command center.
   function landingFor(u) { return isAdmin(u) ? '03-dashboard.html' : '04-ticket-list.html'; }
 
   /* ---------- page: LOGIN ---------- */
@@ -185,14 +252,14 @@
       return '<button class="persona" onclick="sd.quickLogin(\'' + u.id + '\')">' +
         '<span class="avatar">' + initials(u.name) + '</span>' +
         '<span class="p-name">' + esc(u.name) + '</span>' +
-        '<span class="p-role">' + esc(u.role) + ' · ' + esc(company(u.companyId).name) + '</span></button>';
+        '<span class="p-role">' + esc(u.role) + ' &middot; ' + esc(company(u.companyId).name) + '</span></button>';
     }).join('');
     document.body.className = '';
     document.body.innerHTML =
       '<div class="login-wrap"><div class="login-card" style="max-width:760px;">' +
-        '<div class="brand"><div class="logo">🎫</div><div>' +
+        '<div class="brand"><div class="logo">&#127915;</div><div>' +
           '<div style="font-weight:700;font-size:15px;">ServiceDesk</div>' +
-          '<div class="muted" style="font-size:12px;">Multi-tenant support portal · interactive demo</div></div></div>' +
+          '<div class="muted" style="font-size:12px;">Multi-tenant support portal &middot; interactive demo</div></div></div>' +
         '<div class="grid cols-2" style="margin-top:14px;gap:28px;align-items:start;">' +
           '<div><h1>Sign in</h1><p class="sub">Use a demo account (password is <b>demo</b> for all).</p>' +
             '<div id="loginErr" class="login-error" style="display:none;"></div>' +
@@ -202,17 +269,15 @@
               '<button class="btn btn-primary btn-block" onclick="sd.login()">Sign in</button>' +
             '</div></div>' +
           '<div><h1 style="font-size:16px;">Or pick a persona</h1>' +
-            '<p class="sub">One click to log in and see that role’s view.</p>' +
+            '<p class="sub">One click to log in and see that role\u2019s view.</p>' +
             '<div class="persona-grid">' + personas + '</div></div>' +
         '</div>' +
-        '<hr class="sep"><p class="muted mb-0" style="font-size:11.5px;">🧪 Simulated client-side login for demonstration only — not real authentication. ' +
+        '<hr class="sep"><p class="muted mb-0" style="font-size:11.5px;">&#129514; Simulated client-side login for demonstration only — not real authentication. ' +
         'Try logging in as <b>Anna (Client User)</b> then as <b>Sara (System Admin)</b> to see tenant isolation.</p>' +
       '</div></div>';
   }
 
   /* ---------- page: HOME (project picker) ---------- */
-  // Mirrors the real IMS: log in, see the projects (client companies) you
-  // belong to / cover as cards, pick one to drill into its tickets.
   function renderHome(u) {
     var companyIds;
     if (isAdmin(u)) companyIds = DB.companies.filter(function (c) { return c.type === 'CLIENT'; }).map(function (c) { return c.id; });
@@ -220,9 +285,6 @@
     else companyIds = [u.companyId];
     var showGrab = isAdmin(u) || isAgent(u);
 
-    // Compute per-project stats once, then sort by activity so the projects
-    // that need attention float to the top (open desc, then unassigned, then name).
-    // This is what keeps the picker usable when an agent covers 30+ clients.
     var projects = companyIds.map(function (cid) {
       var c = company(cid);
       var ct = visibleTickets(u).filter(function (t) { return t.companyId === cid; });
@@ -241,28 +303,26 @@
         '</div></a>';
     }).join('') || '<div class="muted">No projects assigned to you yet. Ask a System Admin to add you to a client.</div>';
 
-    // Search only appears once there are enough projects to warrant it — keeps
-    // the page clean for the common 1–6 project case, scales for the 30 case.
     var searchBar = projects.length > 6
-      ? '<div class="proj-toolbar"><div class="search">🔎 <input id="projq" placeholder="Search projects…" oninput="sd.filterProjects()"></div>' +
+      ? '<div class="proj-toolbar"><div class="search">&#128270; <input id="projq" placeholder="Search projects\u2026" oninput="sd.filterProjects()"></div>' +
         '<span class="muted" id="projcount" style="font-size:12.5px;">' + projects.length + ' projects</span></div>'
       : '';
 
     var mine = visibleTickets(u).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
     var rows = mine.slice(0, 6).map(function (t) {
       return '<tr><td><a class="ref" href="05-ticket-detail.html?id=' + t.id + '">' + t.ref + '</a></td>' +
-        '<td>' + esc(t.subject) + '</td><td>' + statusBadge(t.status) + '</td><td class="muted">' + timeAgo(t.updatedAt) + '</td></tr>';
-    }).join('') || '<tr><td colspan="4" class="muted">No tickets yet.</td></tr>';
+        '<td>' + esc(t.subject) + '</td><td>' + statusBadge(t.status) + '</td><td>' + sevBadge(t.severity) + '</td><td class="muted">' + timeAgo(t.updatedAt) + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">No tickets yet.</td></tr>';
 
     var lead = isClient(u) ? 'Your workspace'
       : (isAdmin(u) ? 'All client companies — pick one to drill into its tickets'
                     : 'Your assigned projects — pick one to see its tickets');
-    var html = pageBar('Home / Projects', 'Welcome back, ' + esc(u.name.split(' ')[0]) + ' 👋', '') +
+    var html = pageBar('Home / Projects', 'Welcome back, ' + esc(u.name.split(' ')[0]) + ' &#128075;', '') +
       '<div class="content"><p class="muted" style="margin-top:0;">' + lead + '</p>' +
       searchBar +
       '<div class="grid cols-3" id="projgrid">' + cards + '</div>' +
       '<div class="card" style="margin-top:18px;"><div class="card-hd">Recent activity</div>' +
-      '<table class="t"><thead><tr><th>Ref</th><th>Subject</th><th>Status</th><th>Updated</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      '<table class="t"><thead><tr><th>Ref</th><th>Subject</th><th>Status</th><th>Severity</th><th>Updated</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     renderShell(u, 'home', html, tenantBanner(u));
   }
 
@@ -273,11 +333,16 @@
     var unassigned = ts.filter(function (t) { return t.assignedTo == null && t.status !== 'Closed'; }).length;
     var inprog = ts.filter(function (t) { return t.status === 'In Progress'; }).length;
     var resolved = ts.filter(function (t) { return t.status === 'Resolved' || t.status === 'Closed'; }).length;
+
+    // SLA breach count
+    var breached = ts.filter(function (t) { return slaStatus(t) === 'breached'; }).length;
+
     var kpis = [
       { l: 'Open Tickets', v: open, c: '#0572ce' },
       { l: 'Unassigned', v: unassigned, c: '#f97316' },
       { l: 'In Progress', v: inprog, c: '#eab308' },
-      { l: 'Resolved / Closed', v: resolved, c: '#22c55e' }
+      { l: 'Resolved / Closed', v: resolved, c: '#22c55e' },
+      { l: 'SLA Breached', v: breached, c: '#b91c1c' }
     ].map(function (k) {
       return '<div class="stat"><span class="label">' + k.l + '</span><span class="value">' + k.v + '</span>' +
         '<div class="bar" style="background:' + k.c + ';"></div></div>';
@@ -293,43 +358,80 @@
       return '<div class="col"><div class="n">' + scount[s] + '</div><div class="bar" style="height:' + h + 'px;background:' + scolors[s] + ';"></div><div class="lbl">' + s.replace(' ', '&nbsp;') + '</div></div>';
     }).join('');
 
-    // priority breakdown
-    var pcount = {}; DB.priorities.forEach(function (p) { pcount[p] = 0; });
-    ts.forEach(function (t) { pcount[t.priority]++; });
-    var ptot = ts.length || 1;
-    var pcolors = { 'Critical': '#b91c1c', 'High': '#c2410c', 'Medium': '#0369a1', 'Low': '#64748b' };
-    var plegend = ['Critical', 'High', 'Medium', 'Low'].map(function (p) {
-      return '<div class="li"><span class="sw" style="background:' + pcolors[p] + ';"></span> ' + p +
-        ' <b style="margin-left:auto;">' + pcount[p] + ' (' + Math.round(pcount[p] / ptot * 100) + '%)</b></div>';
+    // severity breakdown (instead of old "priority" breakdown)
+    var sevs = DB.severities || ['Critical', 'Major', 'Minor', 'Cosmetic'];
+    var svcount = {}; sevs.forEach(function (s) { svcount[s] = 0; });
+    ts.forEach(function (t) { if (t.severity) svcount[t.severity]++; });
+    var stot = ts.length || 1;
+    var svcolors = { 'Critical': '#b91c1c', 'Major': '#c2410c', 'Minor': '#0369a1', 'Cosmetic': '#64748b' };
+    var svlegend = sevs.map(function (s) {
+      return '<div class="li"><span class="sw" style="background:' + svcolors[s] + ';"></span> ' + s +
+        ' <b style="margin-left:auto;">' + svcount[s] + ' (' + Math.round(svcount[s] / stot * 100) + '%)</b></div>';
     }).join('');
 
-    // company breakdown (admin only) or own-company line
+    // FR-28: Average resolution time
+    var resolvedTickets = ts.filter(function (t) { return t.resolvedAt; });
+    var avgResHours = 0;
+    if (resolvedTickets.length) {
+      var totalMs = resolvedTickets.reduce(function (sum, t) {
+        return sum + (new Date(t.resolvedAt).getTime() - new Date(t.createdAt).getTime());
+      }, 0);
+      avgResHours = Math.round(totalMs / resolvedTickets.length / (1000 * 3600));
+    }
+    var avgResDisplay = avgResHours >= 24 ? Math.round(avgResHours / 24) + ' days' : avgResHours + ' hrs';
+
+    // FR-28: Tickets handled per agent
+    var agentStats = DB.users.filter(function (x) { return x.role === 'Support Agent'; }).map(function (a) {
+      var assigned = ts.filter(function (t) { return t.assignedTo === a.id; });
+      var openT = assigned.filter(function (t) { return t.status !== 'Closed' && t.status !== 'Resolved'; }).length;
+      var closedT = assigned.filter(function (t) { return t.status === 'Closed' || t.status === 'Resolved'; }).length;
+      return { name: a.name, open: openT, closed: closedT, total: assigned.length };
+    });
+    var agentRows = agentStats.map(function (a) {
+      return '<tr><td><b>' + esc(a.name) + '</b></td><td>' + a.open + '</td><td>' + a.closed + '</td><td>' + a.total + '</td></tr>';
+    }).join('');
+
+    // company breakdown (admin/agent only)
     var companyCard = '';
-    if (isAdmin(u)) {
-      var rows = DB.companies.filter(function (c) { return c.type === 'CLIENT'; }).map(function (c) {
-        var ct = ts.filter(function (t) { return t.companyId === c.id; });
+    if (isAdmin(u) || isAgent(u)) {
+      var companyIds = isAdmin(u)
+        ? DB.companies.filter(function (c) { return c.type === 'CLIENT'; }).map(function (c) { return c.id; })
+        : agentCompanyIds(u);
+      var crows = companyIds.map(function (cid) {
+        var c = company(cid);
+        var ct = ts.filter(function (t) { return t.companyId === cid; });
         var o = ct.filter(function (t) { return t.status !== 'Closed' && t.status !== 'Resolved'; }).length;
         var ip = ct.filter(function (t) { return t.status === 'In Progress'; }).length;
         var rs = ct.filter(function (t) { return t.status === 'Resolved' || t.status === 'Closed'; }).length;
-        return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + o + '</td><td>' + ip + '</td><td>' + rs + '</td></tr>';
+        var br = ct.filter(function (t) { return slaStatus(t) === 'breached'; }).length;
+        return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + o + '</td><td>' + ip + '</td><td>' + rs + '</td><td>' + (br ? '<span class="sla-badge sla-breach">' + br + '</span>' : '0') + '</td></tr>';
       }).join('');
-      companyCard = '<div class="card" style="margin-top:16px;"><div class="card-hd">Tickets by Client Company ' +
-        '<span class="sub">System Admin only — cross-tenant view</span></div>' +
-        '<table class="t"><thead><tr><th>Company</th><th>Open</th><th>In Progress</th><th>Resolved/Closed</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      var cardLabel = isAdmin(u) ? 'Tickets by Client Company <span class="sub">System Admin — cross-tenant view</span>' : 'Tickets by Project';
+      companyCard = '<div class="card" style="margin-top:16px;"><div class="card-hd">' + cardLabel + '</div>' +
+        '<table class="t"><thead><tr><th>Company</th><th>Open</th><th>In Progress</th><th>Resolved/Closed</th><th>SLA Breach</th></tr></thead><tbody>' + crows + '</tbody></table></div>';
     }
 
+    // Analytics card (FR-28)
+    var analyticsCard =
+      '<div class="card" style="margin-top:16px;"><div class="card-hd">Operational Analytics <span class="sub">FR-28</span></div>' +
+      '<div class="card-bd"><div class="grid cols-2">' +
+        '<div><div class="stat" style="border:0;box-shadow:none;padding:0;"><span class="label">Avg Resolution Time</span><span class="value" style="font-size:24px;">' + avgResDisplay + '</span></div></div>' +
+        '<div><div class="stat" style="border:0;box-shadow:none;padding:0;"><span class="label">Resolved Tickets</span><span class="value" style="font-size:24px;">' + resolvedTickets.length + '</span></div></div>' +
+      '</div>' +
+      '<div style="margin-top:16px;"><div style="font-weight:600;font-size:13px;margin-bottom:8px;">Tickets per Agent</div>' +
+      '<table class="t"><thead><tr><th>Agent</th><th>Open</th><th>Resolved/Closed</th><th>Total</th></tr></thead><tbody>' + agentRows + '</tbody></table></div>' +
+      '</div></div>';
+
     var html = pageBar('Overview / Dashboard', 'Dashboard', '') +
-      '<div class="content"><div class="grid cols-4">' + kpis + '</div>' +
+      '<div class="content"><div class="grid cols-5">' + kpis + '</div>' +
       '<div class="grid cols-2" style="margin-top:16px;">' +
         '<div class="card"><div class="card-hd">Tickets by Status</div><div class="card-bd"><div class="barchart">' + bars + '</div></div></div>' +
-        '<div class="card"><div class="card-hd">Tickets by Priority</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + plegend + '</div></div></div>' +
-      '</div>' + companyCard + '</div>';
+        '<div class="card"><div class="card-hd">Tickets by Severity</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + svlegend + '</div></div></div>' +
+      '</div>' + companyCard + analyticsCard + '</div>';
     renderShell(u, 'dashboard', html, tenantBanner(u));
   }
 
   /* ---------- page: QUEUE ---------- */
-  // Filter chips differ by role. A doer (agent) lands on "Assigned to me";
-  // a client just sees their own tickets so they only need Open / All.
   function queueFilters(u) {
     if (isClient(u)) return [{ f: 'open', label: 'Open' }, { f: 'all', label: 'All' }];
     return [{ f: 'mine', label: 'Assigned to me' }, { f: 'unassigned', label: 'Unassigned' }, { f: 'all', label: 'All' }];
@@ -339,11 +441,11 @@
     if (f === 'mine') return ts.filter(function (t) { return t.assignedTo === u.id; });
     if (f === 'unassigned') return ts.filter(function (t) { return t.assignedTo == null && t.status !== 'Closed'; });
     if (f === 'open') return ts.filter(function (t) { return t.status !== 'Closed'; });
-    return ts; // all
+    return ts;
   }
   function renderQueue(u) {
     var all = visibleTickets(u);
-    var companyId = qs('company');                 // set when arriving from a project card
+    var companyId = qs('company');
     if (companyId) all = all.filter(function (t) { return t.companyId === companyId; });
     var filters = queueFilters(u);
     var f = qs('f') || defaultFilter(u);
@@ -357,7 +459,7 @@
       return '<a class="chip' + (x.f === f ? ' active' : '') + '" href="04-ticket-list.html?f=' + x.f + cq + '">' +
         esc(x.label) + ' <span class="chip-n">' + n + '</span></a>';
     }).join('');
-    var projTag = companyId ? '<a class="chip proj" href="04-ticket-list.html?f=' + f + '" title="Clear project filter">📁 ' + esc(company(companyId).name) + ' ✕</a>' : '';
+    var projTag = companyId ? '<a class="chip proj" href="04-ticket-list.html?f=' + f + '" title="Clear project filter">&#128193; ' + esc(company(companyId).name) + ' &#10005;</a>' : '';
 
     var rows = ts.map(function (t) {
       var asg = t.assignedTo ? esc(user(t.assignedTo).name) : '<span class="muted">— Unassigned</span>';
@@ -365,23 +467,29 @@
         '<td><a class="ref" href="05-ticket-detail.html?id=' + t.id + '">' + t.ref + '</a></td>' +
         '<td>' + esc(t.subject) + '</td>' +
         (showCompany ? '<td>' + esc(company(t.companyId).name) + '</td>' : '') +
-        '<td>' + prioBadge(t.priority) + '</td><td>' + statusBadge(t.status) + '</td>' +
-        '<td>' + asg + '</td><td class="muted">' + timeAgo(t.updatedAt) + '</td></tr>';
+        '<td>' + sevBadge(t.severity) + '</td>' +
+        '<td>' + prioBadge(t.priority) + '</td>' +
+        '<td>' + statusBadge(t.status) + '</td>' +
+        '<td>' + asg + '</td>' +
+        '<td class="muted">' + ageDays(t.createdAt) + '</td>' +
+        '<td>' + slaBadge(t) + '</td>' +
+        '</tr>';
     }).join('');
     if (!rows) {
+      var colSpan = showCompany ? 9 : 8;
       var emptyMsg = { mine: 'Nothing is assigned to you right now — check <b>Unassigned</b> to pick up work.',
-        unassigned: 'No unassigned tickets in your projects. The queue is clear. 🎉',
-        open: 'No open tickets — you’re all caught up. 🎉', all: 'No tickets visible to you.' }[f] || 'No tickets visible to you.';
-      rows = '<tr><td colspan="' + (showCompany ? 7 : 6) + '" class="muted">' + emptyMsg + '</td></tr>';
+        unassigned: 'No unassigned tickets in your projects. The queue is clear. &#127881;',
+        open: 'No open tickets — you\u2019re all caught up. &#127881;', all: 'No tickets visible to you.' }[f] || 'No tickets visible to you.';
+      rows = '<tr><td colspan="' + colSpan + '" class="muted">' + emptyMsg + '</td></tr>';
     }
-    var actions = canCreate(u) ? '<a class="btn btn-primary" href="06-create-ticket.html">➕ New Ticket</a>' : '';
+    var actions = canCreate(u) ? '<a class="btn btn-primary" href="06-create-ticket.html">&#10133; New Ticket</a>' : '';
     var html = pageBar('Tickets / Queue', isClient(u) ? 'My Tickets' : 'Ticket Queue', actions) +
       '<div class="content"><div class="card" style="overflow:hidden;">' +
       '<div class="toolbar">' + chips + projTag +
-      '<div class="search">🔎 <input id="q" placeholder="Search reference or keyword…" oninput="sd.filterQueue()"></div>' +
+      '<div class="search">&#128270; <input id="q" placeholder="Search reference or keyword\u2026" oninput="sd.filterQueue()"></div>' +
       '<span class="muted" style="font-size:12.5px;margin-left:auto;" id="qcount">' + ts.length + ' results</span></div>' +
       '<table class="t" id="qtable"><thead><tr><th>Ref</th><th>Subject</th>' + (showCompany ? '<th>Company</th>' : '') +
-      '<th>Priority</th><th>Status</th><th>Assignee</th><th>Updated</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      '<th>Severity</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Age</th><th>SLA</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     renderShell(u, 'queue', html, tenantBanner(u));
   }
 
@@ -389,21 +497,41 @@
   function renderDetail(u) {
     var t = DB.tickets.find(function (x) { return x.id === qs('id'); });
     if (!t) { renderShell(u, 'queue', notFound('Ticket not found.'), ''); return; }
-    if (!canSee(u, t)) { renderShell(u, 'queue', notFound('🔒 You don’t have access to this ticket. (Tenant isolation in action.)'), ''); return; }
+    if (!canSee(u, t)) { renderShell(u, 'queue', notFound('&#128274; You don\u2019t have access to this ticket. (Tenant isolation in action.)'), ''); return; }
 
     var trs = transitions(t, u).map(function (a) {
       return '<button class="btn ' + a.cls + '" onclick="sd.changeStatus(\'' + t.id + '\',\'' + a.to + '\')">' + a.icon + ' ' + a.label + '</button>';
     }).join('');
-    var assignBtn = canAssign(u) ? '<a class="btn" href="07-assign.html?id=' + t.id + '">👤 ' + (t.assignedTo ? 'Reassign' : 'Assign') + '</a>' : '';
+
+    // Assignment button — Decision J: clients can assign from mapped agents
+    var assignBtn = '';
+    if (canAssign(u, t)) {
+      assignBtn = '<a class="btn" href="07-assign.html?id=' + t.id + '">&#128100; ' + (t.assignedTo ? 'Reassign' : 'Assign') + '</a>';
+    }
+    // Self-assign button — Decision A: agents self-assign from open queue
+    var selfAssignBtn = '';
+    if (canSelfAssign(u, t)) {
+      selfAssignBtn = '<button class="btn btn-primary" onclick="sd.selfAssign(\'' + t.id + '\')">&#9997; Self-Assign</button>';
+    }
+    // Escalate button — FR-26
+    var escalateBtn = '';
+    if (canEscalate(u, t)) {
+      escalateBtn = '<button class="btn btn-escalate" onclick="sd.showEscalate(\'' + t.id + '\')">&#9888; Escalate</button>';
+    }
+    // Set Priority button — agents/admins can set priority during triage
+    var prioBtn = '';
+    if (canSetPriority(u) && !t.priority && t.status !== 'Closed') {
+      prioBtn = '<button class="btn" onclick="sd.showSetPriority(\'' + t.id + '\')">&#9873; Set Priority</button>';
+    }
 
     var comments = DB.comments.filter(function (c) { return c.ticketId === t.id; })
-      .filter(function (c) { return !c.isInternal || canInternalNote(u); }) // clients never see internal notes
+      .filter(function (c) { return !c.isInternal || canInternalNote(u); })
       .sort(function (a, b) { return new Date(a.createdAt) - new Date(b.createdAt); });
     var cHtml = comments.map(function (c) {
       var au = user(c.userId) || { name: '?' };
       return '<div class="comment ' + (c.isInternal ? 'internal' : '') + '"><div class="av">' + initials(au.name) + '</div>' +
-        '<div style="flex:1;"><div class="head"><b>' + esc(au.name) + '</b> · ' + esc(au.role || '') +
-        (c.isInternal ? ' · <span class="badge st-progress">🔒 Internal note</span>' : '') + ' · ' + timeAgo(c.createdAt) + '</div>' +
+        '<div style="flex:1;"><div class="head"><b>' + esc(au.name) + '</b> &middot; ' + esc(au.role || '') +
+        (c.isInternal ? ' &middot; <span class="badge st-progress">&#128274; Internal note</span>' : '') + ' &middot; ' + timeAgo(c.createdAt) + '</div>' +
         '<div class="body">' + esc(c.text) + '</div></div></div>';
     }).join('') || '<div class="muted">No comments yet.</div>';
 
@@ -411,40 +539,70 @@
       .sort(function (a, b) { return new Date(b.createdAt) - new Date(a.createdAt); })
       .map(function (h) {
         var hu = user(h.userId) || { name: '?' };
-        var chg = h.oldValue ? esc(h.oldValue) + ' → ' + esc(h.newValue) : esc(h.newValue);
-        return '<li><span class="pt"></span><div><span class="who">' + esc(hu.name) + '</span> ' + esc(h.action) + '</div>' +
-          '<div class="meta">' + chg + ' · ' + timeAgo(h.createdAt) + '</div></li>';
+        var actionLabel = historyActionLabel(h);
+        var chg = h.oldValue ? esc(h.oldValue) + ' &#8594; ' + esc(h.newValue) : esc(h.newValue);
+        return '<li><span class="pt"></span><div><span class="who">' + esc(hu.name) + '</span> ' + esc(actionLabel) + '</div>' +
+          '<div class="meta">' + chg + ' &middot; ' + timeAgo(h.createdAt) + '</div></li>';
       }).join('');
 
     var cu = user(t.createdBy) || { name: '?' };
-    var actions = assignBtn + trs +
-      '<a class="btn btn-primary" href="08-add-comment.html?id=' + t.id + '">💬 Comment</a>';
+    var sla = slaTarget(t.severity);
+    var slaInfo = sla ? 'SLA: ' + sla.resolutionDays + 'd resolution' : '';
+    var actions = assignBtn + selfAssignBtn + escalateBtn + prioBtn + trs +
+      '<a class="btn btn-primary" href="08-add-comment.html?id=' + t.id + '">&#128172; Comment</a>';
+
+    // CSAT section (FR-27) — shown when ticket is Closed
+    var csatSection = '';
+    if (t.status === 'Closed') {
+      var canRate = isClient(u) && t.companyId === u.companyId && !t.csatScore;
+      csatSection = '<div class="field" style="margin-top:12px;"><label>Customer Satisfaction (CSAT)</label><div>' +
+        csatStars(t.csatScore, canRate) + '</div></div>';
+    }
+
     var main =
       pageBar('<a href="04-ticket-list.html">Queue</a> / ' + t.ref, t.subject, actions) +
       '<div class="content" style="display:grid;grid-template-columns:1fr 300px;gap:16px;">' +
-        '<div><div class="card"><div class="card-hd">' + t.ref + ' ' + statusBadge(t.status) + ' ' + prioBadge(t.priority) + '</div>' +
+        '<div><div class="card"><div class="card-hd">' + t.ref + ' ' + statusBadge(t.status) + ' ' + sevBadge(t.severity) + ' ' + prioBadge(t.priority) + ' ' + slaBadge(t) + '</div>' +
           '<div class="card-bd"><p style="margin-top:0;">' + esc(t.description) + '</p>' +
-          '<div class="grid cols-3" style="gap:8px;margin-top:8px;">' +
+          '<div class="grid cols-4" style="gap:8px;margin-top:8px;">' +
             '<div><div class="muted" style="font-size:11.5px;">Category</div><div>' + esc(category(t.categoryId).name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Raised by</div><div>' + esc(cu.name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Company</div><div>' + esc(company(t.companyId).name) + '</div></div>' +
+            '<div><div class="muted" style="font-size:11.5px;">Age</div><div>' + ageDays(t.createdAt) + '</div></div>' +
           '</div></div></div>' +
           '<div class="card" style="margin-top:16px;"><div class="card-hd">Conversation' +
-            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">💬 Add Comment</a></div>' +
+            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">&#128172; Add Comment</a></div>' +
             '<div class="card-bd">' + cHtml + '</div></div></div>' +
         '<div><div class="card"><div class="card-hd">Properties</div><div class="card-bd form-grid">' +
             '<div class="field"><label>Status</label><input value="' + esc(t.status) + '" disabled></div>' +
+            '<div class="field"><label>Severity</label><div>' + sevBadge(t.severity) + '</div></div>' +
+            '<div class="field"><label>Priority</label><div>' + prioBadge(t.priority) + '</div></div>' +
             '<div class="field"><label>Assignee</label><input value="' + esc(t.assignedTo ? user(t.assignedTo).name : 'Unassigned') + '" disabled></div>' +
             '<div class="field"><label>Company</label><input value="' + esc(company(t.companyId).name) + '" disabled></div>' +
+            '<div class="field"><label>SLA Due</label><input value="' + (t.slaDueDate ? new Date(t.slaDueDate).toLocaleDateString() : '—') + '" disabled></div>' +
+            '<div class="field"><label>' + slaInfo + '</label><div>' + slaBadge(t) + '</div></div>' +
+            csatSection +
           '</div></div>' +
           '<div class="card" style="margin-top:16px;"><div class="card-hd">Activity History</div>' +
             '<div class="card-bd"><ul class="timeline">' + hist + '</ul></div></div></div>' +
       '</div>';
     renderShell(u, 'queue', main, '');
   }
-  function notFound(msg) { return '<div class="content"><div class="card"><div class="card-bd"><p>' + msg + '</p><a class="btn" href="04-ticket-list.html">← Back to queue</a></div></div></div>'; }
+  function notFound(msg) { return '<div class="content"><div class="card"><div class="card-bd"><p>' + msg + '</p><a class="btn" href="04-ticket-list.html">&#8592; Back to queue</a></div></div></div>'; }
 
-  /* ---------- modal pages: CREATE / ASSIGN / COMMENT ---------- */
+  function historyActionLabel(h) {
+    var map = {
+      'STATUS_CHANGE': 'Changed status',
+      'ASSIGN': 'Assigned',
+      'ESCALATE': 'Escalated',
+      'PRIORITY_CHANGE': 'Set priority',
+      'COMMENT': 'Commented',
+      'CSAT': 'Rated support'
+    };
+    return map[h.action] || h.action;
+  }
+
+  /* ---------- modal pages: CREATE / ASSIGN / COMMENT / ESCALATE ---------- */
   function renderModalPage(u, activeKey, behindHtml, modalHtml) {
     renderShell(u, activeKey, '<div class="behind">' + behindHtml + '</div>', '');
     var wrap = document.createElement('div');
@@ -456,36 +614,47 @@
   function renderCreate(u) {
     if (!canCreate(u)) { renderShell(u, 'queue', notFound('Only client users can raise tickets.'), ''); return; }
     var cats = DB.categories.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
-    var prios = DB.priorities.map(function (p) { return '<option' + (p === 'Medium' ? ' selected' : '') + '>' + p + '</option>'; }).join('');
-    var modal = '<div class="modal lg"><div class="m-hd"><h2>Raise a Ticket</h2><span class="x" onclick="location.href=\'04-ticket-list.html\'">✕</span></div>' +
-      '<div class="m-bd"><div class="tenant-banner" style="border-radius:4px;margin-bottom:16px;">🔒 Filed under <b>' + esc(company(u.companyId).name) + '</b> automatically (your company).</div>' +
+    // FR-7 / Decision K: client sets SEVERITY at creation (not priority)
+    var sevs = (DB.severities || ['Critical', 'Major', 'Minor', 'Cosmetic']).map(function (s) {
+      return '<option' + (s === 'Minor' ? ' selected' : '') + '>' + s + '</option>';
+    }).join('');
+    var modal = '<div class="modal lg"><div class="m-hd"><h2>Raise a Ticket</h2><span class="x" onclick="location.href=\'04-ticket-list.html\'">&#10005;</span></div>' +
+      '<div class="m-bd"><div class="tenant-banner" style="border-radius:4px;margin-bottom:16px;">&#128274; Filed under <b>' + esc(company(u.companyId).name) + '</b> automatically (your company).</div>' +
       '<div class="form-grid cols-2">' +
         '<div class="field full"><label>Subject <span class="req">*</span></label><input id="subject" placeholder="Short summary"></div>' +
-        '<div class="field full"><label>Description <span class="req">*</span></label><textarea id="desc" placeholder="Describe the issue…"></textarea></div>' +
+        '<div class="field full"><label>Description <span class="req">*</span></label><textarea id="desc" placeholder="Describe the issue\u2026"></textarea></div>' +
         '<div class="field"><label>Category</label><select id="cat">' + cats + '</select></div>' +
-        '<div class="field"><label>Priority</label><select id="prio">' + prios + '</select></div>' +
+        '<div class="field"><label>Severity <span class="req">*</span></label><select id="sev">' + sevs + '</select>' +
+          '<span class="hint">Business impact — how badly does this affect your work?</span></div>' +
       '</div></div><div class="m-ft"><a class="btn" href="04-ticket-list.html">Cancel</a>' +
-      '<button class="btn btn-primary" onclick="sd.createTicket()">➕ Submit Ticket</button></div></div>';
+      '<button class="btn btn-primary" onclick="sd.createTicket()">&#10133; Submit Ticket</button></div></div>';
     renderModalPage(u, 'create', queueBehind(u), modal);
   }
   function queueBehind(u) { return pageBar('Tickets / Queue', isClient(u) ? 'My Tickets' : 'Ticket Queue', '') + '<div class="content"><div class="card" style="height:300px;"></div></div>'; }
 
   function renderAssign(u) {
     var t = DB.tickets.find(function (x) { return x.id === qs('id'); });
-    if (!t || !canAssign(u)) { renderShell(u, 'queue', notFound('Not allowed, or ticket missing.'), ''); return; }
-    // Only agents who cover this client's project are offered (fall back to all if none).
-    var pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
-    if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent'; });
+    if (!t || !canAssign(u, t)) { renderShell(u, 'queue', notFound('Not allowed, or ticket missing.'), ''); return; }
+    // Decision J: For clients, only agents mapped to their company are offered.
+    // For admin, all agents covering this company (fall back to all agents).
+    var pool;
+    if (isClient(u)) {
+      pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
+    } else {
+      pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
+      if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent'; });
+    }
     var agents = pool.map(function (a) {
       var load = DB.tickets.filter(function (x) { return x.assignedTo === a.id && x.status !== 'Closed'; }).length;
-      return '<option value="' + a.id + '"' + (t.assignedTo === a.id ? ' selected' : '') + '>' + esc(a.name) + ' · ' + load + ' open</option>';
+      return '<option value="' + a.id + '"' + (t.assignedTo === a.id ? ' selected' : '') + '>' + esc(a.name) + ' &middot; ' + load + ' open</option>';
     }).join('');
-    var modal = '<div class="modal"><div class="m-hd"><h2>Assign · ' + t.ref + '</h2><span class="x" onclick="location.href=\'05-ticket-detail.html?id=' + t.id + '\'">✕</span></div>' +
-      '<div class="m-bd"><p class="muted mt-0">Put an agent on <b>' + esc(t.subject) + '</b> (' + esc(company(t.companyId).name) + ', ' + esc(t.priority) + ').</p>' +
+    var modal = '<div class="modal"><div class="m-hd"><h2>Assign &middot; ' + t.ref + '</h2><span class="x" onclick="location.href=\'05-ticket-detail.html?id=' + t.id + '\'">&#10005;</span></div>' +
+      '<div class="m-bd"><p class="muted mt-0">Put an agent on <b>' + esc(t.subject) + '</b> (' + esc(company(t.companyId).name) + ', ' + esc(t.severity) + ').</p>' +
+      (isClient(u) ? '<div class="tenant-banner" style="border-radius:4px;margin-bottom:12px;">&#128274; Only agents assigned to <b>' + esc(company(u.companyId).name) + '</b> are shown.</div>' : '') +
       '<div class="form-grid"><div class="field"><label>Assign to agent <span class="req">*</span></label><select id="agent">' + agents + '</select></div>' +
       '<div class="field"><label class="switch on" id="emailSw" onclick="this.classList.toggle(\'on\')"><span class="track"></span> Send assignment email (simulated)</label></div>' +
       '</div></div><div class="m-ft"><a class="btn" href="05-ticket-detail.html?id=' + t.id + '">Cancel</a>' +
-      '<button class="btn btn-primary" onclick="sd.assign(\'' + t.id + '\')">👤 Assign</button></div></div>';
+      '<button class="btn btn-primary" onclick="sd.assign(\'' + t.id + '\')">&#128100; Assign</button></div></div>';
     renderModalPage(u, 'queue', detailBehind(t), modal);
   }
   function detailBehind(t) { return pageBar('Queue / ' + t.ref, t.subject, '') + '<div class="content"><div class="card" style="height:300px;"></div></div>'; }
@@ -494,11 +663,11 @@
     var t = DB.tickets.find(function (x) { return x.id === qs('id'); });
     if (!t || !canSee(u, t)) { renderShell(u, 'queue', notFound('Not allowed, or ticket missing.'), ''); return; }
     var internalToggle = canInternalNote(u) ?
-      '<div class="field"><label class="switch" id="intSw" onclick="this.classList.toggle(\'on\')"><span class="track"></span> 🔒 Internal note (hidden from client)</label></div>' : '';
-    var modal = '<div class="modal"><div class="m-hd"><h2>Add Comment · ' + t.ref + '</h2><span class="x" onclick="location.href=\'05-ticket-detail.html?id=' + t.id + '\'">✕</span></div>' +
-      '<div class="m-bd"><div class="form-grid"><div class="field"><label>Comment <span class="req">*</span></label><textarea id="ctext" placeholder="Type your reply…"></textarea></div>' +
+      '<div class="field"><label class="switch" id="intSw" onclick="this.classList.toggle(\'on\')"><span class="track"></span> &#128274; Internal note (hidden from client)</label></div>' : '';
+    var modal = '<div class="modal"><div class="m-hd"><h2>Add Comment &middot; ' + t.ref + '</h2><span class="x" onclick="location.href=\'05-ticket-detail.html?id=' + t.id + '\'">&#10005;</span></div>' +
+      '<div class="m-bd"><div class="form-grid"><div class="field"><label>Comment <span class="req">*</span></label><textarea id="ctext" placeholder="Type your reply\u2026"></textarea></div>' +
       internalToggle + '</div></div><div class="m-ft"><a class="btn" href="05-ticket-detail.html?id=' + t.id + '">Cancel</a>' +
-      '<button class="btn btn-primary" onclick="sd.addComment(\'' + t.id + '\')">💬 Post Comment</button></div></div>';
+      '<button class="btn btn-primary" onclick="sd.addComment(\'' + t.id + '\')">&#128172; Post Comment</button></div></div>';
     renderModalPage(u, 'queue', detailBehind(t), modal);
   }
 
@@ -510,7 +679,7 @@
       var us = DB.users.filter(function (x) { return x.companyId === c.id; }).length;
       return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + (c.type === 'VENDOR' ? '<span class="role-pill">VENDOR</span>' : 'CLIENT') +
         '</td><td>' + (c.type === 'VENDOR' ? '—' : tk) + '</td><td>' + us + '</td>' +
-        '<td><span class="' + (c.status === 'Active' ? 'tag-active' : 'tag-inactive') + '">● ' + c.status + '</span></td></tr>';
+        '<td><span class="' + (c.status === 'Active' ? 'tag-active' : 'tag-inactive') + '">&#9679; ' + c.status + '</span></td></tr>';
     }).join('');
     var html = pageBar('Administration / Companies', 'Companies', '') +
       '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Company</th><th>Type</th><th>Tickets</th><th>Users</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
@@ -521,24 +690,34 @@
     if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
     var rows = DB.users.map(function (x) {
       return '<tr><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.email) + '</td><td><span class="role-pill">' + esc(x.role) + '</span></td>' +
-        '<td>' + esc(company(x.companyId).name) + '</td><td><span class="tag-active">● Active</span></td></tr>';
+        '<td>' + esc(company(x.companyId).name) + '</td><td><span class="tag-active">&#9679; Active</span></td></tr>';
     }).join('');
     var html = pageBar('Administration / Users', 'Users', '') +
       '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Company</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 — APEX Interactive Grid. FR-6: role + company set here drive login’s app items.</p></div>';
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 — APEX Interactive Grid. FR-6: role + company set here drive login\u2019s app items.</p></div>';
     renderShell(u, 'users', html, tenantBanner(u));
   }
   function renderCategories(u) {
     if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
     var rows = DB.categories.map(function (c) {
       var n = DB.tickets.filter(function (t) { return t.categoryId === c.id && t.status !== 'Closed'; }).length;
-      return '<tr><td>' + esc(c.name) + '</td><td>' + n + '</td><td><span class="tag-active">● Active</span></td></tr>';
+      return '<tr><td>' + esc(c.name) + '</td><td>' + n + '</td><td><span class="tag-active">&#9679; Active</span></td></tr>';
     }).join('');
-    var prio = DB.priorities.map(function (p) { return '<tr><td>' + p + '</td><td>' + prioBadge(p) + '</td></tr>'; }).join('');
-    var html = pageBar('Administration / Categories', 'Categories & Priorities', '') +
-      '<div class="content"><div class="grid cols-2">' +
+    // Show SLA targets table (FR-23)
+    var slaRows = (DB.slaTargets || []).map(function (s) {
+      return '<tr><td>' + sevBadge(s.severity) + '</td><td>' + s.responseHours + 'h</td><td>' + s.resolutionDays + 'd</td></tr>';
+    }).join('');
+    var html = pageBar('Administration / Categories', 'Categories, Severities & SLA', '') +
+      '<div class="content"><div class="grid cols-3">' +
       '<div class="card" style="overflow:hidden;"><div class="card-hd">Categories</div><table class="t"><thead><tr><th>Category</th><th>Open</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<div class="card" style="overflow:hidden;"><div class="card-hd">Priorities</div><table class="t"><thead><tr><th>Priority</th><th>Badge</th></tr></thead><tbody>' + prio + '</tbody></table></div>' +
+      '<div class="card" style="overflow:hidden;"><div class="card-hd">Severities (client-set)</div><table class="t"><thead><tr><th>Severity</th><th>Badge</th></tr></thead><tbody>' +
+        (DB.severities || []).map(function (s) { return '<tr><td>' + s + '</td><td>' + sevBadge(s) + '</td></tr>'; }).join('') +
+      '</tbody></table>' +
+      '<div class="card-hd" style="border-top:1px solid var(--c-border-lt);margin-top:0;">Priorities (support-set)</div><table class="t"><thead><tr><th>Priority</th><th>Badge</th></tr></thead><tbody>' +
+        (DB.priorities || []).map(function (p) { return '<tr><td>' + p + '</td><td>' + prioBadge(p) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' +
+      '<div class="card" style="overflow:hidden;"><div class="card-hd">SLA Targets <span class="sub">FR-23 &middot; per severity</span></div><table class="t"><thead><tr><th>Severity</th><th>Response</th><th>Resolution</th></tr></thead><tbody>' + slaRows + '</tbody></table>' +
+      '<div class="card-bd"><p class="muted" style="margin:0;font-size:11.5px;">Global targets, vendor-managed. SLA due date stamped at ticket creation.</p></div></div>' +
       '</div></div>';
     renderShell(u, 'categories', html, tenantBanner(u));
   }
@@ -546,7 +725,7 @@
     var html = pageBar('Account / Profile', 'My Profile', '') +
       '<div class="content" style="max-width:720px;"><div class="card"><div class="card-hd">Personal details</div><div class="card-bd">' +
       '<div style="display:flex;gap:16px;align-items:center;margin-bottom:18px;"><div class="avatar" style="width:60px;height:60px;font-size:22px;">' + initials(u.name) + '</div>' +
-      '<div><div style="font-weight:600;font-size:16px;">' + esc(u.name) + '</div><div class="muted">' + esc(u.role) + ' · ' + esc(company(u.companyId).name) + '</div></div></div>' +
+      '<div><div style="font-weight:600;font-size:16px;">' + esc(u.name) + '</div><div class="muted">' + esc(u.role) + ' &middot; ' + esc(company(u.companyId).name) + '</div></div></div>' +
       '<div class="form-grid cols-2">' +
         '<div class="field"><label>Full name</label><input value="' + esc(u.name) + '"></div>' +
         '<div class="field"><label>Email</label><input value="' + esc(u.email) + '" disabled></div>' +
@@ -575,20 +754,34 @@
     quickLogin: function (uid) { localStorage.setItem(LS_SESSION, JSON.stringify({ userId: uid })); location.href = landingFor(user(uid)); },
     logout: function () { localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; },
     reset: function () { if (confirm('Reset all demo data and sign out?')) { localStorage.removeItem(LS_DATA); localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; } },
+
     createTicket: function () {
       var u = currentUser();
       var subject = document.getElementById('subject').value.trim();
       var desc = document.getElementById('desc').value.trim();
       if (!subject || !desc) { alert('Subject and description are required.'); return; }
+      var severity = document.getElementById('sev').value;
+      var sla = slaTarget(severity);
+      var slaDue = null;
+      if (sla) {
+        var d = new Date();
+        d.setDate(d.getDate() + sla.resolutionDays);
+        slaDue = d.toISOString();
+      }
       var r = nextRef();
       var t = { id: 't' + r.n, ref: r.ref, companyId: u.companyId, subject: subject, description: desc,
-        categoryId: document.getElementById('cat').value, priority: document.getElementById('prio').value,
-        status: 'New', createdBy: u.id, assignedTo: null, createdAt: nowIso(), updatedAt: nowIso() };
+        categoryId: document.getElementById('cat').value, severity: severity, priority: null,
+        status: 'New', createdBy: u.id, assignedTo: null,
+        createdAt: nowIso(), updatedAt: nowIso(), resolvedAt: null, closedAt: null,
+        slaDueDate: slaDue, csatScore: null };
       DB.tickets.push(t);
-      pushHistory(t.id, u.id, 'Raised ticket', '', 'New');
+      pushHistory(t.id, u.id, 'STATUS_CHANGE', '', 'New');
       save();
+      // FR-29: simulated auto-acknowledgement email
+      sessionStorage.setItem('flash', '&#9989; Ticket ' + r.ref + ' created. &#128231; Auto-acknowledgement email sent (simulated).');
       location.href = '05-ticket-detail.html?id=' + t.id;
     },
+
     assign: function (id) {
       var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
       var agentId = document.getElementById('agent').value;
@@ -597,11 +790,27 @@
       t.assignedTo = agentId;
       if (t.status === 'New') t.status = 'Assigned';
       t.updatedAt = nowIso();
-      pushHistory(id, u.id, 'Assigned to ' + user(agentId).name, old, t.status);
+      pushHistory(id, u.id, 'ASSIGN', old === 'New' ? 'Unassigned' : (user(t.assignedTo) || {}).name || '', user(agentId).name);
+      if (old === 'New') pushHistory(id, u.id, 'STATUS_CHANGE', old, t.status);
       save();
-      sessionStorage.setItem('flash', (emailOn ? '📧 Assignment email sent (simulated). ' : '') + 'Assigned to ' + user(agentId).name + '.');
+      sessionStorage.setItem('flash', (emailOn ? '&#128231; Assignment email sent (simulated). ' : '') + 'Assigned to ' + user(agentId).name + '.');
       location.href = '05-ticket-detail.html?id=' + id;
     },
+
+    selfAssign: function (id) {
+      var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
+      var old = t.status;
+      t.assignedTo = u.id;
+      if (t.status === 'New') t.status = 'Assigned';
+      t.updatedAt = nowIso();
+      pushHistory(id, u.id, 'ASSIGN', 'Unassigned', u.name + ' (self-assign)');
+      if (old === 'New') pushHistory(id, u.id, 'STATUS_CHANGE', old, t.status);
+      save();
+      sessionStorage.setItem('flash', 'Self-assigned. You now own this ticket.');
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
     addComment: function (id) {
       var u = currentUser(), text = document.getElementById('ctext').value.trim();
       if (!text) { alert('Comment cannot be empty.'); return; }
@@ -610,20 +819,115 @@
       DB.comments.push({ id: 'c' + NOW(), ticketId: id, userId: u.id, text: text, isInternal: internal, createdAt: nowIso() });
       var t = DB.tickets.find(function (x) { return x.id === id; }); t.updatedAt = nowIso();
       save();
-      sessionStorage.setItem('flash', internal ? '🔒 Internal note added.' : 'Comment posted.');
+      sessionStorage.setItem('flash', internal ? '&#128274; Internal note added.' : 'Comment posted.');
       location.href = '05-ticket-detail.html?id=' + id;
     },
+
     changeStatus: function (id, to) {
       var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
       var old = t.status; t.status = to; t.updatedAt = nowIso();
       if (to === 'Resolved') t.resolvedAt = nowIso();
       if (to === 'Closed') t.closedAt = nowIso();
-      pushHistory(id, u.id, statusActionName(old, to), old, to);
+      pushHistory(id, u.id, 'STATUS_CHANGE', old, to);
       save();
-      sessionStorage.setItem('flash', 'Status changed: ' + old + ' → ' + to + '.');
+      sessionStorage.setItem('flash', 'Status changed: ' + old + ' &#8594; ' + to + '.');
       renderDetail(u);
       var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
     },
+
+    // FR-26: Escalate — reassign to another agent + raise priority
+    showEscalate: function (id) {
+      var t = DB.tickets.find(function (x) { return x.id === id; });
+      var u = currentUser();
+      var pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && x.id !== t.assignedTo && agentCovers(x.id, t.companyId); });
+      if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && x.id !== t.assignedTo; });
+      var agents = pool.map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
+      var prios = (DB.priorities || ['P1','P2','P3','P4']).map(function (p) {
+        var sel = t.priority && p < t.priority ? ' selected' : (p === 'P1' ? ' selected' : '');
+        return '<option' + sel + '>' + p + '</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>&#9888; Escalate &middot; ' + t.ref + '</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><p class="muted mt-0">Reassign to a higher-tier agent and raise priority. This action is logged in history.</p>' +
+        '<div class="form-grid"><div class="field"><label>Reassign to <span class="req">*</span></label><select id="escAgent">' + agents + '</select></div>' +
+        '<div class="field"><label>New Priority <span class="req">*</span></label><select id="escPrio">' + prios + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-escalate" onclick="sd.doEscalate(\'' + t.id + '\')">&#9888; Escalate</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.id = 'escModal';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doEscalate: function (id) {
+      var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
+      var newAgent = document.getElementById('escAgent').value;
+      var newPrio = document.getElementById('escPrio').value;
+      var oldAgent = t.assignedTo ? user(t.assignedTo).name : 'Unassigned';
+      var oldPrio = t.priority || '—';
+      t.assignedTo = newAgent;
+      t.priority = newPrio;
+      t.updatedAt = nowIso();
+      pushHistory(id, u.id, 'ESCALATE', oldAgent + ' / ' + oldPrio, user(newAgent).name + ' / ' + newPrio);
+      save();
+      sessionStorage.setItem('flash', '&#9888; Escalated: reassigned to ' + user(newAgent).name + ', priority raised to ' + newPrio + '.');
+      sd.closeModal();
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // Set priority (support triage)
+    showSetPriority: function (id) {
+      var t = DB.tickets.find(function (x) { return x.id === id; });
+      var prios = (DB.priorities || ['P1','P2','P3','P4']).map(function (p) {
+        return '<option' + (p === 'P3' ? ' selected' : '') + '>' + p + '</option>';
+      }).join('');
+      var modal = '<div class="modal" style="max-width:400px;"><div class="m-hd"><h2>Set Priority &middot; ' + t.ref + '</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><p class="muted mt-0">Triage: set the support work-order priority.</p>' +
+        '<div class="form-grid"><div class="field"><label>Priority</label><select id="newPrio">' + prios + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doSetPriority(\'' + t.id + '\')">Set Priority</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.id = 'prioModal';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doSetPriority: function (id) {
+      var u = currentUser(), t = DB.tickets.find(function (x) { return x.id === id; });
+      var newPrio = document.getElementById('newPrio').value;
+      var oldPrio = t.priority || '—';
+      t.priority = newPrio;
+      t.updatedAt = nowIso();
+      pushHistory(id, u.id, 'PRIORITY_CHANGE', oldPrio, newPrio);
+      save();
+      sessionStorage.setItem('flash', 'Priority set to ' + newPrio + '.');
+      sd.closeModal();
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // FR-27: CSAT rating
+    rateCsat: function (starEl) {
+      var val = parseInt(starEl.getAttribute('data-val'));
+      var u = currentUser();
+      // Find the ticket from the current page
+      var tid = qs('id');
+      var t = DB.tickets.find(function (x) { return x.id === tid; });
+      if (!t || t.csatScore) return;
+      t.csatScore = val;
+      t.updatedAt = nowIso();
+      pushHistory(tid, u.id, 'CSAT', '', val + '/5 stars');
+      save();
+      sessionStorage.setItem('flash', '&#11088; Thank you for your feedback! (' + val + '/5)');
+      renderDetail(u);
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    closeModal: function () {
+      var m = document.querySelector('.modal-backdrop');
+      if (m) m.remove();
+    },
+
     filterQueue: function () {
       var q = document.getElementById('q').value.toLowerCase();
       var rows = document.querySelectorAll('#qtable tbody tr'), shown = 0;
@@ -637,22 +941,13 @@
       var el = document.getElementById('projcount'); if (el) el.textContent = shown + ' projects';
     }
   };
-  function statusActionName(o, n) {
-    if (n === 'In Progress' && o === 'Assigned') return 'Started work';
-    if (n === 'In Progress' && o === 'On Hold') return 'Resumed';
-    if (n === 'On Hold') return 'Put on hold';
-    if (n === 'Resolved') return 'Resolved';
-    if (n === 'Closed') return 'Closed';
-    if (n === 'In Progress' && o === 'Resolved') return 'Reopened';
-    return 'Changed status';
-  }
 
   /* ---------- router ---------- */
   function boot() {
     var page = document.body.getAttribute('data-page');
     if (page === 'login') { renderLogin(); return; }
     var u = currentUser();
-    if (!u) { location.href = '01-login.html'; return; } // auth guard
+    if (!u) { location.href = '01-login.html'; return; }
     switch (page) {
       case 'home': renderHome(u); break;
       case 'dashboard': renderDashboard(u); break;

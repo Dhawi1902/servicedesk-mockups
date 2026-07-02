@@ -147,7 +147,9 @@ a:hover { text-decoration: underline; }
 .cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 900px){ .cols-3,.cols-4{grid-template-columns:repeat(2,1fr);} }
+.cols-5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1100px){ .cols-5{grid-template-columns:repeat(3,1fr);} }
+@media (max-width: 900px){ .cols-3,.cols-4,.cols-5{grid-template-columns:repeat(2,1fr);} }
 
 /* ---------- Stat tiles (Badge List / Cards) --------------------------- */
 .stat {
@@ -235,10 +237,35 @@ table.t .muted { color: var(--c-muted); }
 .st-resolved   { background:#dcfce7; color:#15803d; }
 .st-closed     { background:#e5e7eb; color:#374151; }
 
+/* Priority badges (P1–P4, support-set) */
 .pr-low      { background:#f1f5f9; color:#475569; }
 .pr-medium   { background:#e0f2fe; color:#0369a1; }
 .pr-high     { background:#ffedd5; color:#c2410c; }
 .pr-critical { background:#fee2e2; color:#b91c1c; }
+
+/* Severity badges (Critical/Major/Minor/Cosmetic, client-set — Decision K) */
+.sev-critical { background:#fee2e2; color:#b91c1c; font-weight:700; }
+.sev-major    { background:#ffedd5; color:#c2410c; }
+.sev-minor    { background:#e0f2fe; color:#0369a1; }
+.sev-cosmetic { background:#f1f5f9; color:#475569; }
+
+/* SLA breach indicators (FR-23) */
+.sla-badge { font-size:11px; font-weight:600; white-space:nowrap; }
+.sla-ok     { color:#15803d; }
+.sla-warn   { color:#92740a; }
+.sla-breach { color:#b91c1c; }
+
+/* CSAT star rating (FR-27) */
+.csat-stars { display:inline-flex; gap:2px; font-size:22px; }
+.csat-stars .star { color:#d1d5db; cursor:default; }
+.csat-stars .star.filled { color:#f59e0b; }
+.csat-stars.editable .star { cursor:pointer; transition:color .1s; }
+.csat-stars.editable .star:hover,
+.csat-stars.editable .star:hover ~ .star { color:#fbbf24; }
+
+/* Escalate button */
+.btn-escalate { background:#fef3c7; border-color:#f59e0b; color:#92400e; font-weight:600; }
+.btn-escalate:hover { background:#fde68a; }
 
 .role-pill {
   background:#eef2ff; color:#4338ca; border-radius: 4px;

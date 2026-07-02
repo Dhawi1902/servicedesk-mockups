@@ -639,24 +639,23 @@
             '<div><div class="muted" style="font-size:11.5px;">Raised by</div><div>' + esc(cu.name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Company</div><div>' + esc(company(t.companyId).name) + '</div></div>' +
             '<div><div class="muted" style="font-size:11.5px;">Age</div><div>' + ageDays(t.createdAt) + '</div></div>' +
-          '</div>' +
+          '</div></div></div>' +
+          '<div class="card" style="margin-top:16px;"><div class="card-hd">Conversation' +
+            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">&#128172; Add Comment</a></div>' +
+            '<div class="card-bd">' + cHtml + '</div></div>' +
           (function () {
             var allFiles = ticketAttachments(t.id);
             if (!allFiles.length) return '';
-            return '<div style="margin-top:14px;border-top:1px solid var(--c-border-lt);padding-top:12px;">' +
-              '<div style="font-weight:600;font-size:13px;margin-bottom:8px;">&#128206; Attachments <span class="muted" style="font-weight:400;font-size:12px;">' + allFiles.length + ' file' + (allFiles.length > 1 ? 's' : '') + '</span></div>' +
-              '<div class="attach-grid">' + allFiles.map(function (a) {
+            return '<div class="card" style="margin-top:16px;"><div class="card-hd">&#128206; Attachments <span class="sub">' + allFiles.length + ' file' + (allFiles.length > 1 ? 's' : '') + '</span></div>' +
+              '<div class="card-bd"><div class="attach-grid">' + allFiles.map(function (a) {
                 var up = user(a.uploadedBy) || { name: '?' };
                 var context = a.commentId ? 'on comment' : 'on ticket';
                 return '<div class="attach-row"><span class="ar-icon">' + fileIcon(a.mimeType) + '</span>' +
                   '<div class="ar-info"><div class="ar-name">' + esc(a.fileName) + '</div>' +
                   '<div class="ar-meta">' + fileSize(a.fileSize) + ' &middot; ' + esc(up.name) + ' &middot; ' + timeAgo(a.uploadedAt) + ' &middot; ' + context + '</div></div>' +
                   '<span class="ar-dl">&#8595; Download</span></div>';
-              }).join('') + '</div></div>';
-          })() + '</div></div>' +
-          '<div class="card" style="margin-top:16px;"><div class="card-hd">Conversation' +
-            '<a class="btn btn-sm btn-primary" style="margin-left:auto;" href="08-add-comment.html?id=' + t.id + '">&#128172; Add Comment</a></div>' +
-            '<div class="card-bd">' + cHtml + '</div></div></div>' +
+              }).join('') + '</div></div></div>';
+          })() + '</div>' +
         '<div><div class="card"><div class="card-hd">Properties</div><div class="card-bd form-grid">' +
             '<div class="field"><label>Status</label><input value="' + esc(t.status) + '" disabled></div>' +
             '<div class="field"><label>Severity</label><div>' + sevBadge(t.severity) + '</div></div>' +

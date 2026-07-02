@@ -429,6 +429,37 @@ hr.sep { border:0; border-top:1px solid var(--c-border-lt); margin:18px 0; }
 .persona .p-name { font-weight:600; font-size:12.5px; color:var(--c-text); }
 .persona .p-role { font-size:10.5px; color:var(--c-muted); }
 
+/* Login tabs */
+.login-tabs { display:flex; gap:4px; margin-bottom:12px; flex-wrap:wrap; }
+.login-tab {
+  padding:5px 12px; border-radius:16px; border:1px solid var(--c-border);
+  background:#fff; font-size:12px; font-weight:500; cursor:pointer;
+  color:var(--c-muted); transition:all .15s;
+}
+.login-tab:hover { border-color:#93c5fd; color:var(--c-text); }
+.login-tab.active { background:#0572ce; color:#fff; border-color:#0572ce; }
+.tab-count { font-size:10px; opacity:.7; margin-left:2px; }
+.login-panels { min-height:200px; }
+.login-panel { display:none; }
+.login-panel.active { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+
+/* Role-colored avatars */
+.av-admin { background:#7c3aed !important; }
+.av-agent { background:#0572ce !important; }
+.av-cadmin { background:#0d9488 !important; }
+.av-cuser { background:#64748b !important; }
+
+/* Persona enhancements */
+.persona .p-covers { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
+.cover-tag { font-size:9px; background:#e0f2fe; color:#0369a1; padding:1px 5px; border-radius:8px; }
+.persona .p-dept { font-size:9.5px; color:var(--c-muted); margin-top:2px; font-style:italic; }
+
+/* Role legend on login */
+.role-legend { margin-top:20px; padding:12px; background:#f8fafc; border-radius:8px; border:1px solid var(--c-border-lt); }
+.rl-title { font-size:12px; font-weight:600; margin-bottom:8px; color:var(--c-text); }
+.rl-item { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--c-muted); margin-bottom:5px; line-height:1.4; }
+.rl-item b { color:var(--c-text); }
+
 .demo-foot {
   position:fixed; left:0; right:0; bottom:0; z-index:40;
   background:#1b2330; color:#cdd3dd; font-size:11.5px;

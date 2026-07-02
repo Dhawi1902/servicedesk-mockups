@@ -27,7 +27,7 @@
    ========================================================================= */
 (function () {
   'use strict';
-  var LS_DATA = 'sd_demo_data_v5', LS_SESSION = 'sd_demo_session_v5';
+  var LS_DATA = 'sd_demo_data_v6', LS_SESSION = 'sd_demo_session_v6';
 
   /* ---------- store ---------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -354,15 +354,57 @@
   function renderLogin() {
     var cu = currentUser();
     if (cu) { location.href = landingFor(cu); return; }
-    var personas = DB.users.map(function (u) {
-      return '<button class="persona" onclick="sd.quickLogin(\'' + u.id + '\')">' +
-        '<span class="avatar">' + initials(u.name) + '</span>' +
-        '<span class="p-name">' + esc(u.name) + '</span>' +
-        '<span class="p-role">' + esc(u.role) + ' &middot; ' + esc(company(u.companyId).name) + '</span></button>';
+
+    // Group users by company
+    var groups = [];
+    // Vendor first
+    var vendorUsers = DB.users.filter(function(u) { return u.companyId === 'C0'; });
+    groups.push({ id: 'C0', name: 'Northwind IT', label: 'Vendor', users: vendorUsers });
+    // Then each client company (active only)
+    DB.companies.filter(function(c) { return c.type === 'CLIENT' && c.status === 'Active'; }).forEach(function(c) {
+      var cUsers = DB.users.filter(function(u) { return u.companyId === c.id; });
+      if (cUsers.length) groups.push({ id: c.id, name: c.name, label: c.name, users: cUsers });
+    });
+
+    // Build tabs
+    var tabs = groups.map(function(g, i) {
+      return '<button class="login-tab' + (i === 0 ? ' active' : '') + '" onclick="sd.switchLoginTab(\'' + g.id + '\', this)">' +
+        esc(g.label) + ' <span class="tab-count">' + g.users.length + '</span></button>';
     }).join('');
+
+    // Build tab panels
+    var panels = groups.map(function(g, i) {
+      var cards = g.users.map(function(u) {
+        var roleLabel = u.role;
+        if (u.tier) roleLabel += ' \u00b7 ' + u.tier;
+        // For agents, show covered companies
+        var coveredHtml = '';
+        if (u.role === 'Support Agent') {
+          var covered = (DB.agentCompanies || []).filter(function(ac) { return ac.userId === u.id; })
+            .map(function(ac) { return company(ac.companyId).name; });
+          if (covered.length) {
+            coveredHtml = '<span class="p-covers">' + covered.map(function(n) { return '<span class="cover-tag">' + esc(n) + '</span>'; }).join(' ') + '</span>';
+          }
+        }
+        // For clients, show department
+        var deptHtml = '';
+        if (u.departmentId) {
+          var dept = (DB.departments || []).find(function(d) { return d.id === u.departmentId; });
+          if (dept) deptHtml = '<span class="p-dept">' + esc(dept.name) + ' dept</span>';
+        }
+        var avatarCls = u.role === 'System Admin' ? 'av-admin' : (u.role === 'Support Agent' ? 'av-agent' : (u.role === 'Client Admin' ? 'av-cadmin' : 'av-cuser'));
+        return '<button class="persona" onclick="sd.quickLogin(\'' + u.id + '\')">' +
+          '<span class="avatar ' + avatarCls + '">' + initials(u.name) + '</span>' +
+          '<span class="p-name">' + esc(u.name) + '</span>' +
+          '<span class="p-role">' + esc(roleLabel) + '</span>' +
+          coveredHtml + deptHtml + '</button>';
+      }).join('');
+      return '<div class="login-panel' + (i === 0 ? ' active' : '') + '" data-company="' + g.id + '">' + cards + '</div>';
+    }).join('');
+
     document.body.className = '';
     document.body.innerHTML =
-      '<div class="login-wrap"><div class="login-card" style="max-width:760px;">' +
+      '<div class="login-wrap"><div class="login-card" style="max-width:880px;">' +
         '<div class="brand"><div class="logo">&#127915;</div><div>' +
           '<div style="font-weight:700;font-size:15px;">ServiceDesk</div>' +
           '<div class="muted" style="font-size:12px;">Multi-tenant support portal &middot; interactive demo</div></div></div>' +
@@ -373,13 +415,23 @@
               '<div class="field"><label>Email</label><input id="email" type="email" value="anna@acme.example"></div>' +
               '<div class="field"><label>Password</label><input id="pwd" type="password" value="demo"></div>' +
               '<button class="btn btn-primary btn-block" onclick="sd.login()">Sign in</button>' +
-            '</div></div>' +
-          '<div><h1 style="font-size:16px;">Or pick a persona</h1>' +
-            '<p class="sub">One click to log in and see that role\u2019s view.</p>' +
-            '<div class="persona-grid">' + personas + '</div></div>' +
+            '</div>' +
+            '<div class="role-legend">' +
+              '<div class="rl-title">Roles in the system</div>' +
+              '<div class="rl-item"><span class="avatar av-admin" style="width:18px;height:18px;font-size:8px;">SA</span> <b>System Admin</b> — sees everything, manages all</div>' +
+              '<div class="rl-item"><span class="avatar av-agent" style="width:18px;height:18px;font-size:8px;">AG</span> <b>Support Agent</b> — works tickets (L1\u2013L4 tiers)</div>' +
+              '<div class="rl-item"><span class="avatar av-cadmin" style="width:18px;height:18px;font-size:8px;">CA</span> <b>Client Admin</b> — sees all company tickets</div>' +
+              '<div class="rl-item"><span class="avatar av-cuser" style="width:18px;height:18px;font-size:8px;">CU</span> <b>Client User</b> — sees own department only</div>' +
+            '</div>' +
+          '</div>' +
+          '<div><h1 style="font-size:16px;">Pick a persona</h1>' +
+            '<p class="sub">One click to sign in. Grouped by company.</p>' +
+            '<div class="login-tabs">' + tabs + '</div>' +
+            '<div class="login-panels">' + panels + '</div>' +
+          '</div>' +
         '</div>' +
-        '<hr class="sep"><p class="muted mb-0" style="font-size:11.5px;">&#129514; Simulated client-side login for demonstration only — not real authentication. ' +
-        'Try logging in as <b>Anna (Client User)</b> then as <b>Sara (System Admin)</b> to see tenant isolation.</p>' +
+        '<hr class="sep"><p class="muted mb-0" style="font-size:11.5px;">&#129514; Simulated client-side login for demonstration only \u2014 not real authentication. ' +
+        'Try different roles to see <b>tenant isolation</b> and <b>tier-based escalation</b> in action.</p>' +
       '</div></div>';
   }
 
@@ -942,6 +994,13 @@
       location.href = landingFor(u);
     },
     quickLogin: function (uid) { localStorage.setItem(LS_SESSION, JSON.stringify({ userId: uid })); location.href = landingFor(user(uid)); },
+    switchLoginTab: function(companyId, btn) {
+      document.querySelectorAll('.login-tab').forEach(function(t) { t.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelectorAll('.login-panel').forEach(function(p) {
+        p.classList.toggle('active', p.getAttribute('data-company') === companyId);
+      });
+    },
     logout: function () { localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; },
     reset: function () { if (confirm('Reset all demo data and sign out?')) { localStorage.removeItem(LS_DATA); localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; } },
 

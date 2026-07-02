@@ -32,7 +32,8 @@ window.DEMO_SEED = {
     { id: 'dep2', companyId: 'C1', name: 'IT' },
     { id: 'dep3', companyId: 'C2', name: 'Operations' },
     { id: 'dep4', companyId: 'C2', name: 'HR' },
-    { id: 'dep5', companyId: 'C3', name: 'Engineering' }
+    { id: 'dep5', companyId: 'C3', name: 'Engineering' },
+    { id: 'dep6', companyId: 'C3', name: 'Support' }
   ],
 
   // password is 'demo' for every account (prefilled on the login screen)
@@ -46,7 +47,15 @@ window.DEMO_SEED = {
     { id: 'u5', name: 'Bob Reyes',    email: 'bob@acme.example',        password: 'demo', role: 'Client Admin',  companyId: 'C1', tier: null, departmentId: 'dep2' },
     { id: 'u6', name: 'Carla Vidal',  email: 'carla@globex.example',    password: 'demo', role: 'Client Admin',  companyId: 'C2', tier: null, departmentId: 'dep3' },
     { id: 'u7', name: 'Dan Yu',       email: 'dan@globex.example',      password: 'demo', role: 'Client User',   companyId: 'C2', tier: null, departmentId: 'dep4' },
-    { id: 'u8', name: 'Eve Park',     email: 'eve@initech.example',     password: 'demo', role: 'Client User',   companyId: 'C3', tier: null, departmentId: 'dep5' }
+    { id: 'u8', name: 'Eve Park',     email: 'eve@initech.example',     password: 'demo', role: 'Client User',   companyId: 'C3', tier: null, departmentId: 'dep5' },
+    { id: 'u9',  name: 'Nora Syed',    email: 'nora@northwind.example',  password: 'demo', role: 'Support Agent', companyId: 'C0', tier: 'L1', departmentId: null },
+    { id: 'u10', name: 'Raj Patel',    email: 'raj@northwind.example',   password: 'demo', role: 'Support Agent', companyId: 'C0', tier: 'L2', departmentId: null },
+    { id: 'u11', name: 'Kim Tanaka',   email: 'kim@northwind.example',   password: 'demo', role: 'Support Agent', companyId: 'C0', tier: 'L3', departmentId: null },
+    { id: 'u12', name: 'Omar Hassan',  email: 'omar@northwind.example',  password: 'demo', role: 'Support Agent', companyId: 'C0', tier: 'L4', departmentId: null },
+    { id: 'u13', name: 'Fay Wong',     email: 'fay@acme.example',        password: 'demo', role: 'Client User',   companyId: 'C1', tier: null, departmentId: 'dep2' },
+    { id: 'u14', name: 'Tom Grant',    email: 'tom@globex.example',      password: 'demo', role: 'Client User',   companyId: 'C2', tier: null, departmentId: 'dep3' },
+    { id: 'u15', name: 'Lily Chen',    email: 'lily@initech.example',    password: 'demo', role: 'Client Admin',  companyId: 'C3', tier: null, departmentId: 'dep5' },
+    { id: 'u16', name: 'Zack Osman',   email: 'zack@initech.example',    password: 'demo', role: 'Client User',   companyId: 'C3', tier: null, departmentId: 'dep6' }
   ],
 
   // Which CLIENT companies (projects) each Support Agent covers.
@@ -58,7 +67,17 @@ window.DEMO_SEED = {
     { userId: 'u2', companyId: 'C1' },   // Mike covers Acme
     { userId: 'u2', companyId: 'C2' },   // Mike covers Globex
     { userId: 'u3', companyId: 'C1' },   // Lee covers Acme
-    { userId: 'u3', companyId: 'C3' }    // Lee covers Initech (not Globex)
+    { userId: 'u3', companyId: 'C3' },   // Lee covers Initech (not Globex)
+    { userId: 'u9',  companyId: 'C1' },   // Nora L1 covers Acme
+    { userId: 'u9',  companyId: 'C3' },   // Nora L1 covers Initech
+    { userId: 'u10', companyId: 'C2' },   // Raj L2 covers Globex
+    { userId: 'u10', companyId: 'C3' },   // Raj L2 covers Initech
+    { userId: 'u11', companyId: 'C1' },   // Kim L3 covers Acme
+    { userId: 'u11', companyId: 'C2' },   // Kim L3 covers Globex
+    { userId: 'u11', companyId: 'C3' },   // Kim L3 covers Initech
+    { userId: 'u12', companyId: 'C1' },   // Omar L4 covers Acme
+    { userId: 'u12', companyId: 'C2' },   // Omar L4 covers Globex
+    { userId: 'u12', companyId: 'C3' }    // Omar L4 covers Initech
   ],
 
   categories: [

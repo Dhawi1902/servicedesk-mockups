@@ -45,6 +45,7 @@
   if (!DB.departments) { DB.departments = []; }
   if (!DB.ticketTypes) { DB.ticketTypes = ['INCIDENT', 'SERVICE_REQUEST']; }
   if (!DB.resolutionCodes) { DB.resolutionCodes = ['FIXED', 'WORKAROUND', 'KNOWN_ERROR', 'CANNOT_REPRODUCE', 'DUPLICATE', 'USER_EDUCATION', 'NOT_AN_INCIDENT']; }
+  if (!DB.adminAuditLog) { DB.adminAuditLog = []; }
   DB.tickets.forEach(function (t) {
     if (t.ticketType === undefined) t.ticketType = 'INCIDENT';
     if (t.departmentId === undefined) t.departmentId = null;
@@ -291,8 +292,8 @@
     var items = [
       { key: 'home', label: 'Projects', icon: '&#128193;', href: '02-home.html', section: 'Overview' }
     ];
-    // Dashboard visible to Agent, Admin, and Client Admin (FR-19)
-    if (isAdmin(u) || isAgent(u) || isClientAdmin(u)) items.push({ key: 'dashboard', label: 'Dashboard', icon: '&#128202;', href: '03-dashboard.html', section: 'Overview' });
+    // Dashboard visible to all roles (FR-19)
+    items.push({ key: 'dashboard', label: 'Dashboard', icon: '&#128202;', href: '03-dashboard.html', section: 'Overview' });
     items.push({ key: 'queue', label: queueLabel, icon: '&#127915;', href: '04-ticket-list.html', section: 'Tickets' });
     if (canCreate(u)) items.push({ key: 'create', label: 'Raise a Ticket', icon: '&#10133;', href: '06-create-ticket.html', section: 'Tickets' });
     if (isAdmin(u)) {
@@ -300,6 +301,9 @@
       items.push({ key: 'users', label: 'Users', icon: '&#128101;', href: '10-users.html', section: 'Administration' });
       items.push({ key: 'categories', label: 'Categories', icon: '&#127991;&#65039;', href: '11-categories.html', section: 'Administration' });
       items.push({ key: 'sla', label: 'SLA Targets', icon: '&#9202;', href: '13-sla-targets.html', section: 'Administration' });
+      items.push({ key: 'agent-companies', label: 'Agent Mapping', icon: '&#128279;', href: '14-agent-companies.html', section: 'Administration' });
+      items.push({ key: 'departments', label: 'Departments', icon: '&#127963;', href: '15-departments.html', section: 'Administration' });
+      items.push({ key: 'audit-log', label: 'Audit Log', icon: '&#128220;', href: '16-audit-log.html', section: 'Administration' });
     }
     items.push({ key: 'profile', label: 'My Profile', icon: '&#128100;', href: '12-profile.html', section: 'Account' });
     return items;
@@ -500,15 +504,46 @@
     }).length;
     var slaCompliancePct = resolvedWithSla.length ? Math.round(resolvedOnTime / resolvedWithSla.length * 100) : 100;
 
-    var kpis = [
-      { l: 'Open Tickets', v: open, c: '#0572ce' },
-      { l: 'Unassigned', v: unassigned, c: '#f97316' },
-      { l: 'In Progress', v: inprog, c: '#eab308' },
-      { l: 'Resolved / Closed', v: resolved, c: '#22c55e' },
-      { l: 'SLA Compliance %', v: slaCompliancePct + '%', c: slaCompliancePct >= 80 ? '#22c55e' : '#b91c1c' }
-    ].map(function (k) {
-      return '<div class="stat"><span class="label">' + k.l + '</span><span class="value">' + k.v + '</span>' +
-        '<div class="bar" style="background:' + k.c + ';"></div></div>';
+    // Gap 4: Avg First Response
+    var ticketsWithFr = ts.filter(function (t) { return t.firstResponseAt && t.createdAt; });
+    var avgFrHours = 0;
+    if (ticketsWithFr.length) {
+      var frTotalMs = ticketsWithFr.reduce(function (sum, t) {
+        return sum + (new Date(t.firstResponseAt).getTime() - new Date(t.createdAt).getTime());
+      }, 0);
+      avgFrHours = Math.round(frTotalMs / ticketsWithFr.length / (1000 * 3600) * 10) / 10;
+    }
+    var avgFrDisplay = avgFrHours >= 24 ? Math.round(avgFrHours / 24) + 'd' : avgFrHours + 'h';
+
+    // Gap 4: Reopen Rate
+    var resolvedOrClosed = ts.filter(function (t) { return t.status === 'Resolved' || t.status === 'Closed'; });
+    var reopenedCount = resolvedOrClosed.filter(function (t) { return t.reopenCount > 0; }).length;
+    var reopenPct = resolvedOrClosed.length ? Math.round(reopenedCount / resolvedOrClosed.length * 100) : 0;
+
+    // Gap 4: CSAT Average
+    var ticketsWithCsat = ts.filter(function (t) { return t.csatScore; });
+    var csatAvg = 0;
+    if (ticketsWithCsat.length) {
+      csatAvg = Math.round(ticketsWithCsat.reduce(function (sum, t) { return sum + t.csatScore; }, 0) / ticketsWithCsat.length * 10) / 10;
+    }
+    var csatDisplay = ticketsWithCsat.length ? csatAvg + '/5' : '—';
+
+    var kpiIcons = ['&#127915;', '&#128232;', '&#9881;', '&#9989;', '&#9202;', '&#9889;', '&#128260;', '&#11088;'];
+    var kpiColors = ['#dbeafe', '#ffedd5', '#fef9c3', '#dcfce7', slaCompliancePct >= 80 ? '#dcfce7' : '#fee2e2', '#e0f2fe', reopenPct <= 10 ? '#dcfce7' : '#ffedd5', csatAvg >= 4 ? '#dcfce7' : (csatAvg >= 3 ? '#fef9c3' : '#fee2e2')];
+    var kpiIconColors = ['#0572ce', '#f97316', '#eab308', '#22c55e', slaCompliancePct >= 80 ? '#22c55e' : '#b91c1c', '#0369a1', reopenPct <= 10 ? '#22c55e' : '#c2410c', csatAvg >= 4 ? '#22c55e' : (csatAvg >= 3 ? '#eab308' : '#b91c1c')];
+    var kpiData = [
+      { l: 'Open Tickets', v: open },
+      { l: 'Unassigned', v: unassigned },
+      { l: 'In Progress', v: inprog },
+      { l: 'Resolved / Closed', v: resolved },
+      { l: 'SLA Compliance', v: slaCompliancePct + '%' },
+      { l: 'Avg First Response', v: avgFrDisplay },
+      { l: 'Reopen Rate', v: reopenPct + '%' },
+      { l: 'CSAT Average', v: csatDisplay }
+    ];
+    var kpis = kpiData.map(function (k, i) {
+      return '<div class="kpi-badge"><div class="kpi-icon" style="background:' + kpiColors[i] + ';color:' + kpiIconColors[i] + ';">' + kpiIcons[i] + '</div>' +
+        '<div class="kpi-body"><div class="kpi-value">' + k.v + '</div><div class="kpi-label">' + k.l + '</div></div></div>';
     }).join('');
 
     // status bar chart
@@ -539,6 +574,16 @@
       '<div class="li"><span class="sw" style="background:#dc2626;"></span> Incidents <b style="margin-left:auto;">' + incidentCount + '</b></div>' +
       '<div class="li"><span class="sw" style="background:#2563eb;"></span> Service Requests <b style="margin-left:auto;">' + srCount + '</b></div>' +
       '</div>';
+
+    // Priority breakdown (FR-18)
+    var prios = DB.priorities || ['P1', 'P2', 'P3', 'P4'];
+    var prcount = { 'Untriaged': 0 }; prios.forEach(function (p) { prcount[p] = 0; });
+    ts.forEach(function (t) { if (t.priority) prcount[t.priority]++; else prcount['Untriaged']++; });
+    var prcolors = { 'P1': '#b91c1c', 'P2': '#c2410c', 'P3': '#0369a1', 'P4': '#64748b', 'Untriaged': '#d4d4d8' };
+    var prlegend = ['Untriaged'].concat(prios).map(function (p) {
+      return '<div class="li"><span class="sw" style="background:' + prcolors[p] + ';"></span> ' + (p === 'Untriaged' ? '<i>Untriaged</i>' : p) +
+        ' <b style="margin-left:auto;">' + prcount[p] + '</b></div>';
+    }).join('');
 
     // FR-28: Average resolution time
     var resolvedTickets = ts.filter(function (t) { return t.resolvedAt; });
@@ -575,11 +620,19 @@
         var ip = ct.filter(function (t) { return t.status === 'In Progress'; }).length;
         var rs = ct.filter(function (t) { return t.status === 'Resolved' || t.status === 'Closed'; }).length;
         var br = ct.filter(function (t) { return slaStatus(t) === 'breached'; }).length;
-        return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + o + '</td><td>' + ip + '</td><td>' + rs + '</td><td>' + (br ? '<span class="sla-badge sla-breach">' + br + '</span>' : '0') + '</td></tr>';
+        // Gap 5: Per-company SLA compliance %
+        var cResolved = ct.filter(function (t) { return (t.status === 'Resolved' || t.status === 'Closed') && t.slaDueDate; });
+        var cOnTime = cResolved.filter(function (t) {
+          var rt = new Date(t.resolvedAt || t.closedAt).getTime();
+          return rt <= new Date(t.slaDueDate).getTime();
+        }).length;
+        var cSlaPct = cResolved.length ? Math.round(cOnTime / cResolved.length * 100) : 100;
+        var cSlaCls = cSlaPct >= 90 ? 'sla-pct-green' : (cSlaPct >= 70 ? 'sla-pct-yellow' : 'sla-pct-red');
+        return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + o + '</td><td>' + ip + '</td><td>' + rs + '</td><td>' + (br ? '<span class="sla-badge sla-breach">' + br + '</span>' : '0') + '</td><td><span class="' + cSlaCls + '">' + cSlaPct + '%</span></td></tr>';
       }).join('');
       var cardLabel = isAdmin(u) ? 'Tickets by Client Company <span class="sub">System Admin — cross-tenant view</span>' : 'Tickets by Project';
       companyCard = '<div class="card" style="margin-top:16px;"><div class="card-hd">' + cardLabel + '</div>' +
-        '<table class="t"><thead><tr><th>Company</th><th>Open</th><th>In Progress</th><th>Resolved/Closed</th><th>SLA Breach</th></tr></thead><tbody>' + crows + '</tbody></table></div>';
+        '<table class="t"><thead><tr><th>Company</th><th>Open</th><th>In Progress</th><th>Resolved/Closed</th><th>SLA Breach</th><th>SLA Compliance</th></tr></thead><tbody>' + crows + '</tbody></table></div>';
     }
 
     // Analytics card (FR-28)
@@ -594,11 +647,12 @@
       '</div></div>';
 
     var html = pageBar('Overview / Dashboard', 'Dashboard', '') +
-      '<div class="content"><div class="grid cols-5">' + kpis + '</div>' +
-      '<div class="grid cols-3" style="margin-top:16px;">' +
-        '<div class="card"><div class="card-hd">Tickets by Status</div><div class="card-bd"><div class="barchart">' + bars + '</div></div></div>' +
-        '<div class="card"><div class="card-hd">Tickets by Severity</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + svlegend + '</div></div></div>' +
-        '<div class="card"><div class="card-hd">Tickets by Type <span class="sub">FR-30</span></div><div class="card-bd">' + typeBreakdown + '</div></div>' +
+      '<div class="content"><div class="grid cols-4">' + kpis + '</div>' +
+      '<div class="grid cols-4" style="margin-top:16px;">' +
+        '<div class="card"><div class="chart-region-hd">Tickets by Status</div><div class="card-bd"><div class="barchart">' + bars + '</div></div></div>' +
+        '<div class="card"><div class="chart-region-hd">Tickets by Severity</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + svlegend + '</div></div></div>' +
+        '<div class="card"><div class="chart-region-hd">Tickets by Priority</div><div class="card-bd"><div class="legend" style="flex-direction:column;gap:10px;">' + prlegend + '</div></div></div>' +
+        '<div class="card"><div class="chart-region-hd">Tickets by Type <span class="sub">FR-30</span></div><div class="card-bd">' + typeBreakdown + '</div></div>' +
       '</div>' + companyCard + analyticsCard + '</div>';
     renderShell(u, 'dashboard', html, tenantBanner(u));
   }
@@ -633,9 +687,44 @@
     }).join('');
     var projTag = companyId ? '<a class="chip proj" href="04-ticket-list.html?f=' + f + '" title="Clear project filter">&#128193; ' + esc(company(companyId).name) + ' &#10005;</a>' : '';
 
+    // Build facet data
+    var facetDefs = [
+      { field: 'status', label: 'Status' },
+      { field: 'severity', label: 'Severity' },
+      { field: 'priority', label: 'Priority' },
+      { field: 'type', label: 'Type' }
+    ];
+    if (showCompany) facetDefs.push({ field: 'company', label: 'Company' });
+    facetDefs.push({ field: 'assignee', label: 'Assignee' });
+
+    var facetValues = {};
+    facetDefs.forEach(function (fd) { facetValues[fd.field] = {}; });
+    ts.forEach(function (t) {
+      var sv = { status: t.status, severity: t.severity || 'Unset', priority: t.priority || 'Untriaged',
+        type: t.ticketType === 'SERVICE_REQUEST' ? 'Service Request' : 'Incident',
+        company: company(t.companyId).name || '?',
+        assignee: t.assignedTo ? (user(t.assignedTo) || {}).name || '?' : 'Unassigned' };
+      facetDefs.forEach(function (fd) {
+        var val = sv[fd.field];
+        facetValues[fd.field][val] = (facetValues[fd.field][val] || 0) + 1;
+      });
+    });
+
+    var facetHtml = facetDefs.map(function (fd) {
+      var vals = Object.keys(facetValues[fd.field]).sort();
+      var items = vals.map(function (v) {
+        return '<div class="facet-item" data-field="' + fd.field + '" data-value="' + esc(v) + '" onclick="sd.toggleFacet(\'' + fd.field + '\',\'' + esc(v).replace(/'/g, "\\'") + '\')">' +
+          '<span class="fi-check">&#10003;</span> ' + esc(v) + '<span class="fi-count">' + facetValues[fd.field][v] + '</span></div>';
+      }).join('');
+      return '<div class="facet-group"><div class="fg-label">' + fd.label + ' <span class="facet-clear" onclick="sd.clearFacets(\'' + fd.field + '\')">Clear</span></div>' + items + '</div>';
+    }).join('');
+
     var rows = ts.map(function (t) {
-      var asg = t.assignedTo ? esc(user(t.assignedTo).name) : '<span class="muted">— Unassigned</span>';
-      return '<tr>' +
+      var asg = t.assignedTo ? user(t.assignedTo) : null;
+      var asgName = asg ? esc(asg.name) : '<span class="muted">\u2014 Unassigned</span>';
+      var asgAttr = asg ? asg.name : 'Unassigned';
+      var typeLabel = t.ticketType === 'SERVICE_REQUEST' ? 'Service Request' : 'Incident';
+      return '<tr data-status="' + esc(t.status) + '" data-severity="' + esc(t.severity || 'Unset') + '" data-priority="' + esc(t.priority || 'Untriaged') + '" data-type="' + esc(typeLabel) + '" data-company="' + esc(company(t.companyId).name) + '" data-assignee="' + esc(asgAttr) + '">' +
         '<td><a class="ref" href="05-ticket-detail.html?id=' + t.id + '">' + t.ref + '</a></td>' +
         '<td>' + esc(t.subject) + '</td>' +
         '<td>' + typeBadge(t.ticketType) + '</td>' +
@@ -643,26 +732,50 @@
         '<td>' + sevBadge(t.severity) + '</td>' +
         '<td>' + prioBadge(t.priority) + '</td>' +
         '<td>' + statusBadge(t.status) + '</td>' +
-        '<td>' + asg + '</td>' +
+        '<td>' + asgName + '</td>' +
         '<td class="muted">' + ageDays(t.createdAt) + '</td>' +
         '<td>' + slaBadge(t) + '</td>' +
         '</tr>';
     }).join('');
     if (!rows) {
       var colSpan = showCompany ? 10 : 9;
-      var emptyMsg = { mine: 'Nothing is assigned to you right now — check <b>Unassigned</b> to pick up work.',
-        unassigned: 'No unassigned tickets in your projects. The queue is clear. &#127881;',
-        open: 'No open tickets — you\u2019re all caught up. &#127881;', all: 'No tickets visible to you.' }[f] || 'No tickets visible to you.';
-      rows = '<tr><td colspan="' + colSpan + '" class="muted">' + emptyMsg + '</td></tr>';
+      rows = '<tr><td colspan="' + colSpan + '" class="muted">No tickets visible to you.</td></tr>';
     }
     var actions = canCreate(u) ? '<a class="btn btn-primary" href="06-create-ticket.html">&#10133; New Ticket</a>' : '';
+    window._facetState = {};
+
     var html = pageBar('Tickets / Queue', isClient(u) ? 'My Tickets' : 'Ticket Queue', actions) +
       '<div class="content"><div class="card" style="overflow:hidden;">' +
-      '<div class="toolbar">' + chips + projTag +
-      '<div class="search">&#128270; <input id="q" placeholder="Search reference or keyword\u2026" oninput="sd.filterQueue()"></div>' +
-      '<span class="muted" style="font-size:12.5px;margin-left:auto;" id="qcount">' + ts.length + ' results</span></div>' +
-      '<table class="t" id="qtable"><thead><tr><th>Ref</th><th>Subject</th><th>Type</th>' + (showCompany ? '<th>Company</th>' : '') +
-      '<th>Severity</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Age</th><th>SLA</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      '<div class="toolbar">' + chips + projTag + '</div>' +
+      '<div class="queue-layout">' +
+        '<div class="facet-panel">' + facetHtml + '</div>' +
+        '<div class="queue-main">' +
+          '<div class="ir-toolbar">' +
+            '<div class="ir-search">&#128270; <input id="q" placeholder="Search reference or keyword\u2026" oninput="sd.filterQueue()"></div>' +
+            '<div class="ir-actions">' +
+              '<button class="ir-btn">Actions &#9662;</button>' +
+              '<span class="ir-count" id="qcount">' + ts.length + ' results</span>' +
+            '</div>' +
+          '</div>' +
+          '<table class="t" id="qtable"><thead><tr>' +
+            '<th class="sortable">Ref <span class="sort-icon">&#9650;</span></th>' +
+            '<th class="sortable">Subject</th>' +
+            '<th class="sortable">Type</th>' +
+            (showCompany ? '<th class="sortable">Company</th>' : '') +
+            '<th class="sortable">Severity</th>' +
+            '<th class="sortable">Priority</th>' +
+            '<th class="sortable">Status</th>' +
+            '<th class="sortable">Assignee</th>' +
+            '<th class="sortable">Age <span class="sort-icon">&#9660;</span></th>' +
+            '<th>SLA</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>' +
+          '<div class="ir-pagination">' +
+            '<span>1 - ' + ts.length + ' of ' + ts.length + '</span>' +
+            '<button>&#9664;</button><button>&#9654;</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '</div></div>';
     renderShell(u, 'queue', html, tenantBanner(u));
   }
 
@@ -730,7 +843,7 @@
     // CSAT section (FR-27) — shown when ticket is Closed
     var csatSection = '';
     if (t.status === 'Closed') {
-      var canRate = isClient(u) && t.companyId === u.companyId && !t.csatScore;
+      var canRate = isClient(u) && t.companyId === u.companyId && u.id === t.createdBy && !t.csatScore;
       csatSection = '<div class="field" style="margin-top:12px;"><label>Customer Satisfaction (CSAT)</label><div>' +
         csatStars(t.csatScore, canRate) + '</div></div>';
     }
@@ -818,8 +931,8 @@
     var typeOpts = (DB.ticketTypes || ['INCIDENT', 'SERVICE_REQUEST']).map(function (t) {
       return '<option value="' + t + '"' + (t === 'INCIDENT' ? ' selected' : '') + '>' + (t === 'SERVICE_REQUEST' ? 'Service Request' : 'Incident') + '</option>';
     }).join('');
-    // Decision J: agents mapped to the client's company (L1 only for Client User)
-    var agentPool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, u.companyId); });
+    // Decision J: agents mapped to the client's company (L1 only for Client User — Decision L)
+    var agentPool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, u.companyId) && x.tier === 'L1'; });
     var agentOpts = '<option value="">— Unassigned —</option>' + agentPool.map(function (a) {
       var load = DB.tickets.filter(function (x) { return x.assignedTo === a.id && x.status !== 'Closed'; }).length;
       return '<option value="' + a.id + '">' + esc(a.name) + (a.tier ? ' [' + a.tier + ']' : '') + ' \u00b7 ' + load + ' open</option>';
@@ -851,7 +964,7 @@
     // For admin, all agents covering this company (fall back to all agents).
     var pool;
     if (isClient(u)) {
-      pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
+      pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId) && x.tier === 'L1'; });
     } else {
       pool = DB.users.filter(function (x) { return x.role === 'Support Agent' && agentCovers(x.id, t.companyId); });
       if (!pool.length) pool = DB.users.filter(function (x) { return x.role === 'Support Agent'; });
@@ -890,27 +1003,58 @@
     var rows = DB.companies.map(function (c) {
       var tk = DB.tickets.filter(function (t) { return t.companyId === c.id; }).length;
       var us = DB.users.filter(function (x) { return x.companyId === c.id; }).length;
-      return '<tr><td><b>' + esc(c.name) + '</b></td><td>' + (c.type === 'VENDOR' ? '<span class="role-pill">VENDOR</span>' : 'CLIENT') +
-        '</td><td>' + (c.type === 'VENDOR' ? '—' : tk) + '</td><td>' + us + '</td>' +
-        '<td><span class="' + (c.status === 'Active' ? 'tag-active' : 'tag-inactive') + '">&#9679; ' + c.status + '</span></td></tr>';
+      return '<tr><td><span class="ig-row-check"></span></td><td><b>' + esc(c.name) + '</b></td><td>' + (c.type === 'VENDOR' ? '<span class="role-pill">VENDOR</span>' : 'CLIENT') +
+        '</td><td>' + (c.type === 'VENDOR' ? '\u2014' : tk) + '</td><td>' + us + '</td>' +
+        '<td><span class="' + (c.status === 'Active' ? 'tag-active' : 'tag-inactive') + '">&#9679; ' + c.status + '</span></td>' +
+        '<td><button class="btn btn-sm" onclick="sd.showEditCompany(\'' + c.id + '\')">&#9998; Edit</button></td></tr>';
     }).join('');
     var html = pageBar('Administration / Companies', 'Companies', '') +
-      '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Company</th><th>Type</th><th>Tickets</th><th>Users</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 9 — APEX Interactive Grid. FR-5. (Demo is read-only; APEX version supports inline CRUD.)</p></div>';
+      '<div class="content"><div class="card" style="overflow:hidden;" id="ig-companies-wrap">' +
+      '<div class="ig-toolbar">' +
+        '<button class="ir-btn primary" onclick="sd.showAddCompany()">+ Add Row</button>' +
+        '<button class="ir-btn">&#128190; Save</button>' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-companies\')"></div>' +
+        '<div class="ir-actions" style="margin-left:auto;">' +
+          '<button class="ir-btn">Actions &#9662;</button>' +
+          '<span class="ir-count">' + DB.companies.length + ' rows</span>' +
+        '</div>' +
+      '</div>' +
+      '<table class="t ig-table" id="ig-companies"><thead><tr><th style="width:30px;"></th><th class="sortable">Company</th><th class="sortable">Type</th><th class="sortable">Tickets</th><th class="sortable">Users</th><th class="sortable">Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 9 \u2014 APEX Interactive Grid. FR-5: create/edit/deactivate companies.</p></div>';
     renderShell(u, 'companies', html, tenantBanner(u));
   }
   function renderUsers(u) {
     if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
     var rows = DB.users.map(function (x) {
       var dept = department(x.departmentId);
-      return '<tr><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.email) + '</td><td><span class="role-pill">' + esc(x.role) + '</span></td>' +
-        '<td>' + esc(company(x.companyId).name) + '</td><td>' + (x.tier || '<span class="muted">—</span>') + '</td>' +
-        '<td>' + (dept.name ? esc(dept.name) : '<span class="muted">—</span>') + '</td>' +
-        '<td><span class="tag-active">&#9679; Active</span></td></tr>';
+      return '<tr><td><span class="ig-row-check"></span></td><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.email) + '</td><td><span class="role-pill">' + esc(x.role) + '</span></td>' +
+        '<td>' + esc(company(x.companyId).name) + '</td><td>' + (x.tier || '<span class="muted">\u2014</span>') + '</td>' +
+        '<td>' + (dept.name ? esc(dept.name) : '<span class="muted">\u2014</span>') + '</td>' +
+        '<td><span class="tag-active">&#9679; Active</span></td>' +
+        '<td><button class="btn btn-sm" onclick="sd.showEditUser(\'' + x.id + '\')">&#9998; Edit</button></td></tr>';
     }).join('');
+    // Company filter for user list
+    var allCompanies = DB.companies.filter(function(c) { return c.status === 'Active'; });
+    var userCompanySelect = '<select id="users-company-filter" class="ig-filter-select" onchange="sd.filterUsersByCompany(this.value)">' +
+      '<option value="all">All Companies (' + allCompanies.length + ')</option>' +
+      allCompanies.map(function (c) {
+        var count = DB.users.filter(function(u2) { return u2.companyId === c.id; }).length;
+        return '<option value="' + c.id + '">' + esc(c.name) + ' (' + count + ' users)</option>';
+      }).join('') + '</select>';
     var html = pageBar('Administration / Users', 'Users', '') +
-      '<div class="content"><div class="card" style="overflow:hidden;"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Company</th><th>Tier</th><th>Dept</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 — APEX Interactive Grid. FR-6: role + company + tier + department set here drive login\u2019s app items.</p></div>';
+      '<div class="content"><div class="card" style="overflow:hidden;" id="ig-users-wrap">' +
+      '<div class="ig-toolbar">' +
+        '<button class="ir-btn primary" onclick="sd.showAddUser()">+ Add Row</button>' +
+        '<button class="ir-btn">&#128190; Save</button>' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-users\')"></div>' +
+        '<div style="margin-left:8px;display:flex;align-items:center;gap:6px;"><label for="users-company-filter" style="font-size:12px;white-space:nowrap;">Company:</label>' + userCompanySelect + '</div>' +
+        '<div class="ir-actions" style="margin-left:auto;">' +
+          '<button class="ir-btn">Actions &#9662;</button>' +
+          '<span class="ir-count" id="users-row-count">' + DB.users.length + ' rows</span>' +
+        '</div>' +
+      '</div>' +
+      '<table class="t ig-table" id="ig-users"><thead><tr><th style="width:30px;"></th><th class="sortable">Name</th><th class="sortable">Email</th><th class="sortable">Role</th><th class="sortable">Company</th><th class="sortable">Tier</th><th class="sortable">Dept</th><th class="sortable">Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 10 \u2014 APEX Interactive Grid. FR-6: create/edit/deactivate users.</p></div>';
     renderShell(u, 'users', html, tenantBanner(u));
   }
   function renderCategories(u) {
@@ -919,21 +1063,27 @@
       var n = DB.tickets.filter(function (t) { return t.categoryId === c.id && t.status !== 'Closed'; }).length;
       return '<tr><td>' + esc(c.name) + '</td><td>' + n + '</td><td><span class="tag-active">&#9679; Active</span></td></tr>';
     }).join('');
-    // Show SLA targets table (FR-23)
-    var slaRows = (DB.slaTargets || []).map(function (s) {
-      return '<tr><td>' + sevBadge(s.severity) + '</td><td>' + s.responseHours + 'h</td><td>' + s.resolutionDays + 'd</td></tr>';
-    }).join('');
     var html = pageBar('Administration / Categories', 'Categories, Severities & SLA', '') +
       '<div class="content"><div class="grid cols-3">' +
-      '<div class="card" style="overflow:hidden;"><div class="card-hd">Categories</div><table class="t"><thead><tr><th>Category</th><th>Open</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="card" style="overflow:hidden;" id="ig-cats-wrap"><div class="card-hd">Categories</div>' +
+      '<div class="ig-toolbar">' +
+        '<button class="ir-btn">Actions &#9662;</button>' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-cats\')"></div>' +
+        '<span class="ir-count" style="margin-left:auto;">' + DB.categories.length + ' rows</span>' +
+      '</div>' +
+      '<table class="t" id="ig-cats"><thead><tr><th class="sortable">Category</th><th class="sortable">Open</th><th class="sortable">Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<div class="card" style="overflow:hidden;"><div class="card-hd">Severities (client-set)</div><table class="t"><thead><tr><th>Severity</th><th>Badge</th></tr></thead><tbody>' +
         (DB.severities || []).map(function (s) { return '<tr><td>' + s + '</td><td>' + sevBadge(s) + '</td></tr>'; }).join('') +
       '</tbody></table>' +
       '<div class="card-hd" style="border-top:1px solid var(--c-border-lt);margin-top:0;">Priorities (support-set)</div><table class="t"><thead><tr><th>Priority</th><th>Badge</th></tr></thead><tbody>' +
         (DB.priorities || []).map(function (p) { return '<tr><td>' + p + '</td><td>' + prioBadge(p) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' +
-      '<div class="card" style="overflow:hidden;"><div class="card-hd">SLA Targets <span class="sub">FR-23 &middot; per severity</span></div><table class="t"><thead><tr><th>Severity</th><th>Response</th><th>Resolution</th></tr></thead><tbody>' + slaRows + '</tbody></table>' +
-      '<div class="card-bd"><p class="muted" style="margin:0;font-size:11.5px;">Global targets, vendor-managed. SLA due date stamped at ticket creation.</p></div></div>' +
+      '<div class="card" style="overflow:hidden;"><div class="card-hd">SLA Targets</div>' +
+      '<div class="card-bd"><p style="margin:0;">SLA targets are configured <b>per company</b> on the dedicated management page.</p>' +
+      '<a class="btn btn-primary" href="13-sla-targets.html" style="margin-top:12px;">&#9202; Manage SLA Targets</a>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">' + (DB.slaTargets || []).length + ' targets across ' +
+        DB.companies.filter(function(c) { return c.type === 'CLIENT' && c.status === 'Active'; }).length + ' active clients.</p>' +
+      '</div></div>' +
       '</div></div>';
     renderShell(u, 'categories', html, tenantBanner(u));
   }
@@ -946,21 +1096,134 @@
       if (!byCompany[s.companyId]) byCompany[s.companyId] = [];
       byCompany[s.companyId].push(s);
     });
-    var companyIds = Object.keys(byCompany);
-    var tables = companyIds.map(function (cid) {
-      var c = company(cid);
-      var rows = byCompany[cid].map(function (s) {
+    var clientCompanies = DB.companies.filter(function (c) { return c.type === 'CLIENT' && c.status === 'Active'; });
+
+    // Build company filter dropdown (scales to many companies)
+    var companySelect = '<select id="sla-company-filter" class="ig-filter-select" onchange="sd.switchSlaTab(this.value)">' +
+      '<option value="all">All Companies (' + clientCompanies.length + ')</option>' +
+      clientCompanies.map(function (c) {
+        var count = (byCompany[c.id] || []).length;
+        return '<option value="' + c.id + '">' + esc(c.name) + ' (' + count + ' targets)</option>';
+      }).join('') + '</select>';
+
+    // Build per-company tables
+    var tables = clientCompanies.map(function (c) {
+      var targets = byCompany[c.id] || [];
+      var rows = targets.map(function (s) {
         return '<tr><td>' + sevBadge(s.severity) + '</td><td>' + s.responseHours + 'h</td><td>' + s.resolutionDays + 'd</td><td>' + (s.escalationPct || 80) + '%</td></tr>';
       }).join('');
-      return '<div class="card" style="margin-bottom:16px;"><div class="card-hd">' + esc(c.name || cid) + '</div>' +
-        '<table class="t"><thead><tr><th>Severity</th><th>Response</th><th>Resolution</th><th>Escalation %</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      if (!rows) rows = '<tr><td colspan="4" class="muted">No targets configured — will use defaults.</td></tr>';
+      // Ticket stats for this company
+      var companyTickets = DB.tickets.filter(function (t) { return t.companyId === c.id; });
+      var openCount = companyTickets.filter(function (t) { return t.status !== 'Closed' && t.status !== 'Resolved'; }).length;
+      var breachedCount = companyTickets.filter(function (t) { return slaStatus(t) === 'breached'; }).length;
+      return '<div class="sla-company-card" data-sla-company="' + c.id + '">' +
+        '<div class="card"><div class="card-hd"><span style="display:flex;align-items:center;gap:8px;">' + esc(c.name) +
+        '<span class="muted" style="font-size:12px;font-weight:400;">' + openCount + ' open tickets' +
+        (breachedCount ? ' &middot; <span style="color:#b91c1c;">' + breachedCount + ' breached</span>' : '') +
+        '</span></span></div>' +
+        '<table class="t"><thead><tr><th>Severity</th><th>Response Time</th><th>Resolution Time</th><th>Escalation Threshold</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     }).join('');
+
     var html = pageBar('Administration / SLA Targets', 'SLA Targets', '') +
       '<div class="content">' +
-      '<p class="muted" style="margin-top:0;">Per-company SLA targets (FR-23). Vendor-managed. SLA due date is stamped at ticket creation. Auto-escalation triggers at the escalation % threshold (FR-35).</p>' +
-      tables +
-      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 13 — APEX Interactive Grid. System Admin only.</p></div>';
+      '<div class="card" style="margin-bottom:16px;"><div class="card-bd">' +
+      '<p style="margin:0;font-size:13px;">Each client company has its own SLA targets per severity level. ' +
+      'Response time = max time before first agent response. Resolution time = max time to resolve. ' +
+      'Escalation threshold = % of SLA elapsed before auto-escalation triggers (FR-35).</p></div></div>' +
+      '<div style="margin-bottom:16px;display:flex;align-items:center;gap:10px;"><label for="sla-company-filter" style="font-weight:600;font-size:13px;white-space:nowrap;">Filter by Company:</label>' + companySelect + '</div>' +
+      '<div id="sla-panels">' + tables + '</div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 13 — APEX Interactive Grid. System Admin only. In APEX, targets are editable inline.</p></div>';
     renderShell(u, 'sla', html, tenantBanner(u));
+  }
+
+  /* ---------- page: AGENT-COMPANY MAPPING (Page 14) ---------- */
+  function renderAgentCompanies(u) {
+    if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
+    var mappings = (DB.agentCompanies || []);
+    var rows = mappings.map(function (m, idx) {
+      var a = user(m.userId);
+      var c = company(m.companyId);
+      if (!a || !c) return '';
+      return '<tr><td><span class="ig-row-check"></span></td><td><b>' + esc(a.name) + '</b></td><td>' + esc(a.email) + '</td><td>' + (a.tier || '<span class="muted">&mdash;</span>') + '</td><td>' + esc(c.name) + '</td>' +
+        '<td><button class="btn btn-sm" style="color:#b91c1c;" onclick="sd.removeAgentCompany(' + idx + ')">&#10005; Remove</button></td></tr>';
+    }).join('');
+    if (!rows) rows = '<tr><td colspan="6" class="muted">No agent-company mappings yet.</td></tr>';
+    var html = pageBar('Administration / Agent Mapping', 'Agent-Company Mapping', '') +
+      '<div class="content"><div class="card" style="overflow:hidden;" id="ig-ac-wrap">' +
+      '<div class="ig-toolbar">' +
+        '<button class="ir-btn primary" onclick="sd.showAddAgentCompany()">+ Add Row</button>' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-ac\')"></div>' +
+        '<div class="ir-actions" style="margin-left:auto;">' +
+          '<button class="ir-btn">Actions &#9662;</button>' +
+          '<span class="ir-count">' + mappings.length + ' rows</span>' +
+        '</div>' +
+      '</div>' +
+      '<table class="t ig-table" id="ig-ac"><thead><tr><th style="width:30px;"></th><th class="sortable">Agent</th><th class="sortable">Email</th><th class="sortable">Tier</th><th class="sortable">Company</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 14 &mdash; APEX Interactive Grid. Maps support agents to client companies they cover.</p></div>';
+    renderShell(u, 'agent-companies', html, tenantBanner(u));
+  }
+
+  /* ---------- page: DEPARTMENTS (Page 15) ---------- */
+  function renderDepartments(u) {
+    if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
+    var clientCompanies = DB.companies.filter(function (c) { return c.type === 'CLIENT' && c.status === 'Active'; });
+    var deptCompanySelect = '<select id="dept-company-filter" class="ig-filter-select" onchange="sd.filterDeptsByCompany(this.value)">' +
+      '<option value="all">All Companies (' + clientCompanies.length + ')</option>' +
+      clientCompanies.map(function (c) {
+        var count = (DB.departments || []).filter(function(d) { return d.companyId === c.id; }).length;
+        return '<option value="' + c.id + '">' + esc(c.name) + ' (' + count + ' depts)</option>';
+      }).join('') + '</select>';
+    var rows = (DB.departments || []).map(function (d, idx) {
+      var c = company(d.companyId);
+      var userCount = DB.users.filter(function (x) { return x.departmentId === d.id; }).length;
+      return '<tr data-dept-company="' + esc(d.companyId) + '"><td><span class="ig-row-check"></span></td><td><b>' + esc(d.name) + '</b></td><td>' + esc(c.name) + '</td><td>' + userCount + '</td>' +
+        '<td><button class="btn btn-sm" onclick="sd.showEditDept(\'' + d.id + '\')">&#9998; Edit</button></td></tr>';
+    }).join('');
+    if (!rows) rows = '<tr><td colspan="5" class="muted">No departments yet.</td></tr>';
+    var html = pageBar('Administration / Departments', 'Departments', '') +
+      '<div class="content"><div class="card" style="overflow:hidden;" id="ig-depts-wrap">' +
+      '<div class="ig-toolbar">' +
+        '<button class="ir-btn primary" onclick="sd.showAddDept()">+ Add Row</button>' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-depts\')"></div>' +
+        '<div style="margin-left:8px;display:flex;align-items:center;gap:6px;"><label for="dept-company-filter" style="font-size:12px;white-space:nowrap;">Company:</label>' + deptCompanySelect + '</div>' +
+        '<div class="ir-actions" style="margin-left:auto;">' +
+          '<button class="ir-btn">Actions &#9662;</button>' +
+          '<span class="ir-count" id="depts-row-count">' + (DB.departments || []).length + ' rows</span>' +
+        '</div>' +
+      '</div>' +
+      '<table class="t ig-table" id="ig-depts"><thead><tr><th style="width:30px;"></th><th class="sortable">Department</th><th class="sortable">Company</th><th class="sortable">Users</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 15 &mdash; APEX Interactive Grid. Decision N: departments per company.</p></div>';
+    renderShell(u, 'departments', html, tenantBanner(u));
+  }
+
+  /* ---------- page: AUDIT LOG (Page 16) ---------- */
+  function renderAuditLog(u) {
+    if (!isAdmin(u)) { renderShell(u, 'home', notFound('System Admin only.'), ''); return; }
+    var logs = (DB.adminAuditLog || []).slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+    var rows = logs.map(function (l) {
+      var au = user(l.userId);
+      return '<tr><td class="audit-ts">' + esc(new Date(l.timestamp).toLocaleString()) + '</td>' +
+        '<td>' + esc(au ? au.name : l.userId) + '</td>' +
+        '<td><span class="audit-action">' + esc(l.action) + '</span></td>' +
+        '<td class="audit-entity">' + esc(l.entity) + '</td>' +
+        '<td>' + esc(l.record) + '</td>' +
+        '<td class="muted">' + esc(l.oldValue || '—') + '</td>' +
+        '<td class="muted">' + esc(l.newValue || '—') + '</td></tr>';
+    }).join('');
+    if (!rows) rows = '<tr><td colspan="7" class="muted">No admin actions logged yet. Try adding or editing a company or user.</td></tr>';
+    var html = pageBar('Administration / Audit Log', 'Audit Log', '') +
+      '<div class="content"><div class="card" style="overflow:hidden;" id="ig-audit-wrap">' +
+      '<div class="ir-toolbar">' +
+        '<div class="ir-search">&#128270; <input placeholder="Search\u2026" oninput="sd.igSearch(\'ig-audit\')"></div>' +
+        '<div class="ir-actions" style="margin-left:auto;">' +
+          '<button class="ir-btn">Actions &#9662;</button>' +
+          '<span class="ir-count">' + logs.length + ' rows</span>' +
+        '</div>' +
+      '</div>' +
+      '<table class="t" id="ig-audit"><thead><tr><th class="sortable">Timestamp</th><th class="sortable">User</th><th class="sortable">Action</th><th class="sortable">Entity</th><th class="sortable">Record</th><th>Old Value</th><th>New Value</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted" style="font-size:11.5px;margin-top:12px;">Page 16 &mdash; APEX Interactive Report (read-only). Tracks admin CRUD actions.</p></div>';
+    renderShell(u, 'audit-log', html, tenantBanner(u));
   }
 
   function renderProfile(u) {
@@ -978,6 +1241,12 @@
   }
 
   /* ---------- actions (exposed as window.sd) ---------- */
+  // Gap 3: Admin audit log helper
+  function auditLog(userId, action, entity, record, oldValue, newValue) {
+    if (!DB.adminAuditLog) DB.adminAuditLog = [];
+    DB.adminAuditLog.push({ id: 'al' + NOW() + Math.floor(Math.random() * 1000), timestamp: nowIso(), userId: userId, action: action, entity: entity, record: record, oldValue: oldValue || '', newValue: newValue || '' });
+  }
+
   function nextRef() { DB.seq += 1; return { n: DB.seq, ref: 'TKT-' + String(DB.seq).padStart(5, '0') }; }
   function nowIso() { return new Date().toISOString(); }
   function pushHistory(ticketId, userId, action, oldV, newV) {
@@ -999,6 +1268,24 @@
       btn.classList.add('active');
       document.querySelectorAll('.login-panel').forEach(function(p) {
         p.classList.toggle('active', p.getAttribute('data-company') === companyId);
+      });
+    },
+    filterUsersByCompany: function(companyId) {
+      var rows = document.querySelectorAll('#ig-users tbody tr');
+      var visible = 0;
+      rows.forEach(function(row) {
+        var companyCell = row.children[4]; // Company is the 5th column (0-indexed)
+        if (!companyCell) return;
+        var show = (companyId === 'all' || companyCell.textContent.trim() === (DB.companies.find(function(c){ return c.id === companyId; }) || {}).name);
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      var countEl = document.getElementById('users-row-count');
+      if (countEl) countEl.textContent = visible + ' rows';
+    },
+    switchSlaTab: function(companyId) {
+      document.querySelectorAll('.sla-company-card').forEach(function(p) {
+        p.style.display = (companyId === 'all' || p.getAttribute('data-sla-company') === companyId) ? '' : 'none';
       });
     },
     logout: function () { localStorage.removeItem(LS_SESSION); location.href = '01-login.html'; },
@@ -1246,7 +1533,7 @@
     showClose: function (id) {
       var t = DB.tickets.find(function (x) { return x.id === id; });
       var u = currentUser();
-      var csatHtml = isClient(u) ? '<div class="field"><label>How was the support? (optional)</label><div>' + csatStars(null, true) + '</div></div>' : '';
+      var csatHtml = (isClient(u) && u.id === t.createdBy) ? '<div class="field"><label>How was the support? (optional)</label><div>' + csatStars(null, true) + '</div></div>' : '';
       var modal = '<div class="modal" style="max-width:440px;"><div class="m-hd"><h2>&#10003; Close &middot; ' + t.ref + '</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
         '<div class="m-bd"><p class="muted mt-0">Confirm you want to close this ticket. Once closed, it cannot be reopened.</p>' +
         '<div class="form-grid">' + csatHtml + '</div></div>' +
@@ -1308,16 +1595,357 @@
       renderPendingFiles();
     },
 
+    // FR-5: Company CRUD
+    showAddCompany: function() {
+      var modal = '<div class="modal"><div class="m-hd"><h2>New Company</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid">' +
+        '<div class="field"><label>Company Name <span class="req">*</span></label><input id="cmpName" placeholder="e.g. Wayne Enterprises"></div>' +
+        '<div class="field"><label>Type</label><select id="cmpType"><option value="CLIENT" selected>CLIENT</option><option value="VENDOR">VENDOR</option></select></div>' +
+        '<div class="field"><label>Status</label><select id="cmpStatus"><option value="Active" selected>Active</option><option value="Inactive">Inactive</option></select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doAddCompany()">&#10133; Create Company</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doAddCompany: function() {
+      var name = document.getElementById('cmpName').value.trim();
+      if (!name) { alert('Company name is required.'); return; }
+      var type = document.getElementById('cmpType').value;
+      var status = document.getElementById('cmpStatus').value;
+      var id = 'C' + Date.now();
+      DB.companies.push({ id: id, name: name, type: type, status: status });
+      if (type === 'CLIENT') {
+        (DB.severities || ['Critical','Major','Minor','Low']).forEach(function(sev) {
+          var defaults = { 'Critical': {r:1,d:1}, 'Major': {r:4,d:3}, 'Minor': {r:8,d:7}, 'Low': {r:24,d:14} };
+          var def = defaults[sev] || {r:24,d:14};
+          DB.slaTargets.push({ companyId: id, severity: sev, responseHours: def.r, resolutionDays: def.d, escalationPct: 80 });
+        });
+      }
+      auditLog(currentUser().id, 'CREATE', 'Company', name, '', type + ' / ' + status);
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'Company "' + name + '" created.' + (type === 'CLIENT' ? ' Default SLA targets added.' : ''));
+      renderCompanies(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+    showEditCompany: function(cid) {
+      var c = DB.companies.find(function(x) { return x.id === cid; });
+      if (!c) return;
+      var modal = '<div class="modal"><div class="m-hd"><h2>Edit Company</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid">' +
+        '<div class="field"><label>Company Name <span class="req">*</span></label><input id="cmpName" value="' + esc(c.name) + '"></div>' +
+        '<div class="field"><label>Type</label><select id="cmpType"><option value="CLIENT"' + (c.type==='CLIENT'?' selected':'') + '>CLIENT</option><option value="VENDOR"' + (c.type==='VENDOR'?' selected':'') + '>VENDOR</option></select></div>' +
+        '<div class="field"><label>Status</label><select id="cmpStatus"><option value="Active"' + (c.status==='Active'?' selected':'') + '>Active</option><option value="Inactive"' + (c.status==='Inactive'?' selected':'') + '>Inactive</option></select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doEditCompany(\'' + cid + '\')">Save Changes</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doEditCompany: function(cid) {
+      var c = DB.companies.find(function(x) { return x.id === cid; });
+      var name = document.getElementById('cmpName').value.trim();
+      if (!name) { alert('Company name is required.'); return; }
+      var oldName = c.name; var oldType = c.type; var oldStatus = c.status;
+      c.name = name;
+      c.type = document.getElementById('cmpType').value;
+      c.status = document.getElementById('cmpStatus').value;
+      var changes = [];
+      if (oldName !== c.name) changes.push('name: ' + oldName + ' -> ' + c.name);
+      if (oldType !== c.type) changes.push('type: ' + oldType + ' -> ' + c.type);
+      if (oldStatus !== c.status) changes.push('status: ' + oldStatus + ' -> ' + c.status);
+      if (changes.length) auditLog(currentUser().id, 'UPDATE', 'Company', c.name, oldName + ' / ' + oldType + ' / ' + oldStatus, c.name + ' / ' + c.type + ' / ' + c.status);
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'Company updated.');
+      renderCompanies(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // FR-6: User CRUD
+    showAddUser: function() {
+      var companies = DB.companies.map(function(c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
+      var depts = '<option value="">— None —</option>' + (DB.departments || []).map(function(d) {
+        return '<option value="' + d.id + '">' + esc(d.name) + ' (' + esc(company(d.companyId).name) + ')</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>New User</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid cols-2">' +
+        '<div class="field"><label>Full Name <span class="req">*</span></label><input id="usrName" placeholder="e.g. Jane Smith"></div>' +
+        '<div class="field"><label>Email <span class="req">*</span></label><input id="usrEmail" type="email" placeholder="jane@company.example"></div>' +
+        '<div class="field"><label>Role <span class="req">*</span></label><select id="usrRole"><option value="Client User">Client User</option><option value="Client Admin">Client Admin</option><option value="Support Agent">Support Agent</option><option value="System Admin">System Admin</option></select></div>' +
+        '<div class="field"><label>Company <span class="req">*</span></label><select id="usrCompany">' + companies + '</select></div>' +
+        '<div class="field"><label>Tier</label><select id="usrTier"><option value="">— None —</option><option>L1</option><option>L2</option><option>L3</option><option>L4</option></select><span class="hint">For Support Agents only</span></div>' +
+        '<div class="field"><label>Department</label><select id="usrDept">' + depts + '</select><span class="hint">For client users</span></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doAddUser()">&#10133; Create User</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doAddUser: function() {
+      var name = document.getElementById('usrName').value.trim();
+      var email = document.getElementById('usrEmail').value.trim();
+      if (!name || !email) { alert('Name and email are required.'); return; }
+      if (DB.users.some(function(u) { return u.email.toLowerCase() === email.toLowerCase(); })) {
+        alert('A user with this email already exists.'); return;
+      }
+      var role = document.getElementById('usrRole').value;
+      var companyId = document.getElementById('usrCompany').value;
+      var tier = document.getElementById('usrTier').value || null;
+      var deptId = document.getElementById('usrDept').value || null;
+      var id = 'u' + Date.now();
+      DB.users.push({ id: id, name: name, email: email, password: 'demo', role: role, companyId: companyId, tier: tier, departmentId: deptId });
+      auditLog(currentUser().id, 'CREATE', 'User', name + ' (' + email + ')', '', role + ' / ' + company(companyId).name);
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'User "' + name + '" created with role ' + role + '. Password: demo.');
+      renderUsers(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+    showEditUser: function(uid) {
+      var x = DB.users.find(function(u) { return u.id === uid; });
+      if (!x) return;
+      var companies = DB.companies.map(function(c) { return '<option value="' + c.id + '"' + (c.id===x.companyId?' selected':'') + '>' + esc(c.name) + '</option>'; }).join('');
+      var roles = ['Client User','Client Admin','Support Agent','System Admin'].map(function(r) {
+        return '<option' + (r===x.role?' selected':'') + '>' + r + '</option>';
+      }).join('');
+      var tiers = ['','L1','L2','L3','L4'].map(function(t) {
+        var label = t || '— None —';
+        return '<option value="' + t + '"' + (t===(x.tier||'')?' selected':'') + '>' + label + '</option>';
+      }).join('');
+      var depts = '<option value="">— None —</option>' + (DB.departments || []).map(function(d) {
+        return '<option value="' + d.id + '"' + (d.id===x.departmentId?' selected':'') + '>' + esc(d.name) + ' (' + esc(company(d.companyId).name) + ')</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>Edit User</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid cols-2">' +
+        '<div class="field"><label>Full Name <span class="req">*</span></label><input id="usrName" value="' + esc(x.name) + '"></div>' +
+        '<div class="field"><label>Email</label><input id="usrEmail" value="' + esc(x.email) + '" disabled><span class="hint">Cannot change email</span></div>' +
+        '<div class="field"><label>Role <span class="req">*</span></label><select id="usrRole">' + roles + '</select></div>' +
+        '<div class="field"><label>Company <span class="req">*</span></label><select id="usrCompany">' + companies + '</select></div>' +
+        '<div class="field"><label>Tier</label><select id="usrTier">' + tiers + '</select><span class="hint">For Support Agents only</span></div>' +
+        '<div class="field"><label>Department</label><select id="usrDept">' + depts + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doEditUser(\'' + uid + '\')">Save Changes</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doEditUser: function(uid) {
+      var x = DB.users.find(function(u) { return u.id === uid; });
+      var name = document.getElementById('usrName').value.trim();
+      if (!name) { alert('Name is required.'); return; }
+      var oldRole = x.role; var oldCompany = x.companyId; var oldName = x.name;
+      x.name = name;
+      x.role = document.getElementById('usrRole').value;
+      x.companyId = document.getElementById('usrCompany').value;
+      x.tier = document.getElementById('usrTier').value || null;
+      x.departmentId = document.getElementById('usrDept').value || null;
+      auditLog(currentUser().id, 'UPDATE', 'User', x.name + ' (' + x.email + ')', oldName + ' / ' + oldRole + ' / ' + company(oldCompany).name, x.name + ' / ' + x.role + ' / ' + company(x.companyId).name);
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'User "' + name + '" updated.');
+      renderUsers(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // Gap 1: Agent-Company Mapping CRUD
+    showAddAgentCompany: function() {
+      var agents = DB.users.filter(function(x) { return x.role === 'Support Agent'; });
+      var agentOpts = agents.map(function(a) {
+        return '<option value="' + a.id + '">' + esc(a.name) + (a.tier ? ' [' + a.tier + ']' : '') + '</option>';
+      }).join('');
+      var clientCompanies = DB.companies.filter(function(c) { return c.type === 'CLIENT' && c.status === 'Active'; });
+      var companyOpts = clientCompanies.map(function(c) {
+        return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>Add Agent-Company Mapping</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid">' +
+        '<div class="field"><label>Agent <span class="req">*</span></label><select id="acAgent">' + agentOpts + '</select></div>' +
+        '<div class="field"><label>Company <span class="req">*</span></label><select id="acCompany">' + companyOpts + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doAddAgentCompany()">&#10133; Add Mapping</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doAddAgentCompany: function() {
+      var agentId = document.getElementById('acAgent').value;
+      var companyId = document.getElementById('acCompany').value;
+      if (!agentId || !companyId) { alert('Agent and company are required.'); return; }
+      var exists = (DB.agentCompanies || []).some(function(m) { return m.userId === agentId && m.companyId === companyId; });
+      if (exists) { alert('This mapping already exists.'); return; }
+      DB.agentCompanies.push({ userId: agentId, companyId: companyId });
+      auditLog(currentUser().id, 'CREATE', 'Agent-Company', user(agentId).name + ' -> ' + company(companyId).name, '', '');
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'Mapping added: ' + user(agentId).name + ' covers ' + company(companyId).name + '.');
+      renderAgentCompanies(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+    removeAgentCompany: function(idx) {
+      var m = DB.agentCompanies[idx];
+      if (!m) return;
+      if (!confirm('Remove mapping: ' + (user(m.userId) || {}).name + ' from ' + company(m.companyId).name + '?')) return;
+      auditLog(currentUser().id, 'DELETE', 'Agent-Company', (user(m.userId) || {}).name + ' -> ' + company(m.companyId).name, '', '');
+      DB.agentCompanies.splice(idx, 1);
+      save();
+      sessionStorage.setItem('flash', 'Mapping removed.');
+      renderAgentCompanies(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+
+    // Gap 2: Department CRUD
+    showAddDept: function() {
+      var clientCompanies = DB.companies.filter(function(c) { return c.type === 'CLIENT' && c.status === 'Active'; });
+      var companyOpts = clientCompanies.map(function(c) {
+        return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>New Department</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid">' +
+        '<div class="field"><label>Department Name <span class="req">*</span></label><input id="deptName" placeholder="e.g. Finance"></div>' +
+        '<div class="field"><label>Company <span class="req">*</span></label><select id="deptCompany">' + companyOpts + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doAddDept()">&#10133; Create Department</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doAddDept: function() {
+      var name = document.getElementById('deptName').value.trim();
+      var companyId = document.getElementById('deptCompany').value;
+      if (!name) { alert('Department name is required.'); return; }
+      var id = 'dep' + Date.now();
+      DB.departments.push({ id: id, companyId: companyId, name: name });
+      auditLog(currentUser().id, 'CREATE', 'Department', name + ' (' + company(companyId).name + ')', '', '');
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'Department "' + name + '" created under ' + company(companyId).name + '.');
+      renderDepartments(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+    showEditDept: function(deptId) {
+      var d = (DB.departments || []).find(function(x) { return x.id === deptId; });
+      if (!d) return;
+      var clientCompanies = DB.companies.filter(function(c) { return c.type === 'CLIENT' && c.status === 'Active'; });
+      var companyOpts = clientCompanies.map(function(c) {
+        return '<option value="' + c.id + '"' + (c.id === d.companyId ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+      }).join('');
+      var modal = '<div class="modal"><div class="m-hd"><h2>Edit Department</h2><span class="x" onclick="sd.closeModal()">&#10005;</span></div>' +
+        '<div class="m-bd"><div class="form-grid">' +
+        '<div class="field"><label>Department Name <span class="req">*</span></label><input id="deptName" value="' + esc(d.name) + '"></div>' +
+        '<div class="field"><label>Company <span class="req">*</span></label><select id="deptCompany">' + companyOpts + '</select></div>' +
+        '</div></div><div class="m-ft"><button class="btn" onclick="sd.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="sd.doEditDept(\'' + deptId + '\')">Save Changes</button></div></div>';
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = modal;
+      document.body.appendChild(wrap);
+    },
+    doEditDept: function(deptId) {
+      var d = (DB.departments || []).find(function(x) { return x.id === deptId; });
+      var name = document.getElementById('deptName').value.trim();
+      if (!name) { alert('Department name is required.'); return; }
+      var oldName = d.name; var oldCompanyId = d.companyId;
+      d.name = name;
+      d.companyId = document.getElementById('deptCompany').value;
+      auditLog(currentUser().id, 'UPDATE', 'Department', d.name, oldName + ' (' + company(oldCompanyId).name + ')', d.name + ' (' + company(d.companyId).name + ')');
+      save();
+      sd.closeModal();
+      sessionStorage.setItem('flash', 'Department updated.');
+      renderDepartments(currentUser());
+      var f = sessionStorage.getItem('flash'); if (f) { toast(f); sessionStorage.removeItem('flash'); }
+    },
+    filterDeptsByCompany: function(companyId) {
+      var rows = document.querySelectorAll('#ig-depts tbody tr');
+      var visible = 0;
+      rows.forEach(function(row) {
+        var show = (companyId === 'all' || row.getAttribute('data-dept-company') === companyId);
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      var countEl = document.getElementById('depts-row-count');
+      if (countEl) countEl.textContent = visible + ' rows';
+    },
+
     closeModal: function () {
       var m = document.querySelector('.modal-backdrop');
       if (m) m.remove();
     },
 
     filterQueue: function () {
-      var q = document.getElementById('q').value.toLowerCase();
+      var q = document.getElementById('q');
+      var searchTerm = q ? q.value.toLowerCase() : '';
       var rows = document.querySelectorAll('#qtable tbody tr'), shown = 0;
-      rows.forEach(function (r) { var hit = r.textContent.toLowerCase().indexOf(q) >= 0; r.style.display = hit ? '' : 'none'; if (hit) shown++; });
-      document.getElementById('qcount').textContent = shown + ' results';
+      rows.forEach(function (r) {
+        if (r.getAttribute('data-hidden-by-facet') === '1') { r.style.display = 'none'; return; }
+        var hit = !searchTerm || r.textContent.toLowerCase().indexOf(searchTerm) >= 0;
+        r.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      var el = document.getElementById('qcount');
+      if (el) el.textContent = shown + ' results';
+    },
+    toggleFacet: function (field, value) {
+      if (!window._facetState) window._facetState = {};
+      if (!window._facetState[field]) window._facetState[field] = {};
+      if (window._facetState[field][value]) {
+        delete window._facetState[field][value];
+      } else {
+        window._facetState[field][value] = true;
+      }
+      if (Object.keys(window._facetState[field]).length === 0) delete window._facetState[field];
+      var rows = document.querySelectorAll('#qtable tbody tr');
+      rows.forEach(function (r) {
+        var dominated = false;
+        var state = window._facetState || {};
+        Object.keys(state).forEach(function (f) {
+          var allowed = Object.keys(state[f]);
+          if (allowed.length === 0) return;
+          var cellVal = r.getAttribute('data-' + f) || '';
+          if (allowed.indexOf(cellVal) < 0) dominated = true;
+        });
+        r.setAttribute('data-hidden-by-facet', dominated ? '1' : '0');
+      });
+      document.querySelectorAll('.facet-item').forEach(function (fi) {
+        var f = fi.getAttribute('data-field');
+        var v = fi.getAttribute('data-value');
+        var active = window._facetState && window._facetState[f] && window._facetState[f][v];
+        fi.classList.toggle('active', !!active);
+      });
+      sd.filterQueue();
+    },
+    clearFacets: function (field) {
+      if (window._facetState) delete window._facetState[field];
+      var rows = document.querySelectorAll('#qtable tbody tr');
+      rows.forEach(function (r) { r.setAttribute('data-hidden-by-facet', '0'); });
+      if (window._facetState && Object.keys(window._facetState).length) {
+        Object.keys(window._facetState).forEach(function (f) {
+          var allowed = Object.keys(window._facetState[f]);
+          if (!allowed.length) return;
+          rows.forEach(function (r) {
+            if (r.getAttribute('data-hidden-by-facet') === '1') return;
+            var cellVal = r.getAttribute('data-' + f) || '';
+            if (allowed.indexOf(cellVal) < 0) r.setAttribute('data-hidden-by-facet', '1');
+          });
+        });
+      }
+      document.querySelectorAll('.facet-item[data-field="' + field + '"]').forEach(function (fi) { fi.classList.remove('active'); });
+      sd.filterQueue();
+    },
+    igSearch: function (tableId) {
+      var inp = document.querySelector('#' + tableId + '-wrap .ir-search input');
+      var term = inp ? inp.value.toLowerCase() : '';
+      var rows = document.querySelectorAll('#' + tableId + ' tbody tr'), shown = 0;
+      rows.forEach(function (r) { var hit = !term || r.textContent.toLowerCase().indexOf(term) >= 0; r.style.display = hit ? '' : 'none'; if (hit) shown++; });
+      var el = document.querySelector('#' + tableId + '-wrap .ir-count');
+      if (el) el.textContent = shown + ' rows';
     },
     filterProjects: function () {
       var q = document.getElementById('projq').value.toLowerCase().trim();
@@ -1345,6 +1973,9 @@
       case 'users': renderUsers(u); break;
       case 'categories': renderCategories(u); break;
       case 'sla-targets': renderSlaTargets(u); break;
+      case 'agent-companies': renderAgentCompanies(u); break;
+      case 'departments': renderDepartments(u); break;
+      case 'audit-log': renderAuditLog(u); break;
       case 'profile': renderProfile(u); break;
       default: renderHome(u);
     }

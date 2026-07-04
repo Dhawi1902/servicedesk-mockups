@@ -188,7 +188,7 @@ a:hover { text-decoration: underline; }
 .chip.active .chip-n { background: rgba(255,255,255,.25); }
 .chip.proj { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; }
 
-/* ---------- Project cards (Home / project picker) -------------------- */
+/* ---------- Company cards (Home / company picker) -------------------- */
 .proj-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .proj-toolbar .search {
   flex: 1; min-width: 200px; max-width: 360px;
@@ -208,6 +208,16 @@ a:hover { text-decoration: underline; }
 .proj-card .proj-name { font-weight: 600; font-size: 16px; color: var(--c-text); }
 .proj-card .proj-stats { display: flex; gap: 14px; margin-top: 8px; color: var(--c-muted); font-size: 12.5px; }
 .proj-card .proj-stats b { color: var(--c-text); }
+.proj-card-link { text-decoration: none; display: block; }
+.proj-manage {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--c-muted); text-decoration: none;
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  transition: background .15s, color .15s;
+}
+.proj-manage:hover { background: var(--c-nav-active); color: var(--c-primary); border-color: var(--c-primary); }
 
 table.t {
   width: 100%; border-collapse: collapse; background: var(--c-surface);
@@ -277,6 +287,11 @@ table.t .muted { color: var(--c-muted); }
 }
 .tag-active   { color:#15803d; font-weight:600; }
 .tag-inactive { color:#b91c1c; font-weight:600; }
+.tag-warn {
+  display:inline-block; background:#fef3c7; color:#92400e;
+  border:1px solid #fcd34d; border-radius:4px;
+  padding:1px 7px; font-size:11px; font-weight:600; white-space:nowrap;
+}
 
 /* ---------- Buttons (t-Button) ---------------------------------------- */
 .btn {
@@ -673,6 +688,14 @@ table.t th .sort-icon { font-size:10px; color:#9ca3af; margin-left:3px; }
 .kpi-badge .kpi-body .kpi-label {
   color:var(--c-muted); font-size:12px; text-transform:uppercase; letter-spacing:0.4px; margin-top:2px;
 }
+
+/* Agent-Project Mapping — exceptions-first coverage view (Page 14) */
+.ap-kpi { cursor:pointer; transition:border-color .12s, box-shadow .12s; }
+.ap-kpi:hover { border-color:var(--c-primary); }
+.ap-kpi.ap-view-active { border-color:var(--c-primary); box-shadow:0 0 0 1px var(--c-primary) inset; }
+.ap-view-btn.ap-view-active {
+  background:var(--c-nav-active); border-color:var(--c-primary); color:var(--c-primary-d); font-weight:600;
+}
 .chart-region-hd {
   padding:12px 16px; border-bottom:1px solid var(--c-border-lt);
   font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px;
@@ -688,3 +711,59 @@ table.t th .sort-icon { font-size:10px; color:#9ca3af; margin-left:3px; }
 .audit-ts { white-space:nowrap; font-size:12px; color:var(--c-muted); }
 .audit-action { font-weight:600; }
 .audit-entity { font-size:12px; }
+
+/* === Company Detail page (Page 17) === */
+
+/* Tabs */
+.cd-tab {
+  background:none; border:none; padding:10px 20px; cursor:pointer;
+  font-size:13px; font-weight:600; color:var(--c-muted);
+  border-bottom:2px solid transparent; margin-bottom:-2px;
+  transition: color .15s, border-color .15s;
+}
+.cd-tab:hover { color:var(--c-text); }
+.cd-tab-active { color:var(--c-primary); border-bottom-color:var(--c-primary); }
+
+/* Stat cards in company header */
+.stat-card {
+  background:var(--c-bg); border:1px solid var(--c-border-lt); border-radius:var(--radius);
+  min-width:80px;
+}
+.stat-val { font-size:20px; font-weight:700; color:var(--c-text); }
+.stat-lbl { font-size:11px; color:var(--c-muted); margin-top:2px; }
+
+/* Shuttle (dual-list picker) */
+.shuttle-col {
+  border:1px solid var(--c-border-lt); border-radius:var(--radius);
+  display:flex; flex-direction:column; overflow:hidden; background:#fff;
+}
+.shuttle-hd {
+  padding:8px 12px; font-weight:600; font-size:12px;
+  background:var(--c-bg); border-bottom:1px solid var(--c-border-lt);
+  color:var(--c-text);
+}
+.shuttle-search {
+  padding:6px 10px; border-bottom:1px solid var(--c-border-lt);
+}
+.shuttle-search input {
+  width:100%; border:1px solid var(--c-border); border-radius:var(--radius);
+  padding:5px 8px; font-size:12px;
+}
+.shuttle-list {
+  flex:1; overflow-y:auto; min-height:200px; max-height:320px; padding:4px 0;
+}
+.shuttle-item {
+  display:flex; align-items:center; gap:8px; padding:6px 12px;
+  cursor:pointer; font-size:13px; transition:background .1s;
+}
+.shuttle-item:hover { background:var(--c-nav-hover); }
+.shuttle-item.shuttle-selected { background:var(--c-nav-active); outline:2px solid var(--c-primary); outline-offset:-2px; border-radius:2px; }
+.shuttle-empty { padding:20px; text-align:center; font-size:12px; }
+.shuttle-btns button { min-width:36px; font-size:16px; }
+
+/* Small avatar circles for dept member list */
+.avatar-sm {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:50%; font-size:9px; font-weight:700;
+  background:var(--c-primary); color:#fff; letter-spacing:-.5px;
+}
